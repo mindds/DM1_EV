@@ -1,0 +1,139 @@
+
+
+[2022-07-07 12:49:12] load sample meta data file
+[2022-07-07 12:49:25] 	path: /space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/sampleMeta.csv 
+
+
+[2022-07-07 12:49:50] processing salmon quant files
+[2022-07-07 12:49:52] num of aligned samples: 12 
+[2022-07-07 12:49:54] 	use existing gene level expression rawcounts file
+[2022-07-07 12:50:08] 	use existing transcript level expression tpm file
+[2022-07-07 12:50:09] 	saved transcript level TPM
+[2022-07-07 12:50:48] 	 processing sample: BE581_S3 
+[2022-07-07 12:50:48] 	 processing sample: BE585_S4 
+[2022-07-07 12:50:48] 	 processing sample: BE616_S9 
+[2022-07-07 12:50:49] 	 processing sample: BE617_S10 
+[2022-07-07 12:50:49] 	 processing sample: HM144_S1 
+[2022-07-07 12:50:49] 	 processing sample: HM148_S2 
+[2022-07-07 12:50:49] 	 processing sample: HM198_S7 
+[2022-07-07 12:50:49] 	 processing sample: HM199_S8 
+[2022-07-07 12:50:49] 	 processing sample: MB842_S5 
+[2022-07-07 12:50:49] 	 processing sample: MB846_S6 
+[2022-07-07 12:50:50] 	 processing sample: MB857_S11 
+[2022-07-07 12:50:51] 	 processing sample: MB858_S12 
+[2022-07-07 12:51:29] 	 processing sample: BE581_S3 
+[2022-07-07 12:51:30] 	 processing sample: BE585_S4 
+[2022-07-07 12:51:30] 	 processing sample: BE616_S9 
+[2022-07-07 12:51:30] 	 processing sample: BE617_S10 
+[2022-07-07 12:51:30] 	 processing sample: HM144_S1 
+[2022-07-07 12:51:30] 	 processing sample: HM148_S2 
+[2022-07-07 12:51:30] 	 processing sample: HM198_S7 
+[2022-07-07 12:51:30] 	 processing sample: HM199_S8 
+[2022-07-07 12:51:30] 	 processing sample: MB842_S5 
+[2022-07-07 12:51:30] 	 processing sample: MB846_S6 
+[2022-07-07 12:51:30] 	 processing sample: MB857_S11 
+[2022-07-07 12:51:30] 	 processing sample: MB858_S12 
+[2022-07-07 12:51:35] 	exported transcript level expression tpm 
+[2022-07-07 13:06:28] 	 processing sample: BE581_S3 
+[2022-07-07 13:06:28] 	 processing sample: BE585_S4 
+[2022-07-07 13:06:28] 	 processing sample: BE616_S9 
+[2022-07-07 13:06:28] 	 processing sample: BE617_S10 
+[2022-07-07 13:06:28] 	 processing sample: HM144_S1 
+[2022-07-07 13:06:28] 	 processing sample: HM148_S2 
+[2022-07-07 13:06:28] 	 processing sample: HM198_S7 
+[2022-07-07 13:06:28] 	 processing sample: HM199_S8 
+[2022-07-07 13:06:28] 	 processing sample: MB842_S5 
+[2022-07-07 13:06:28] 	 processing sample: MB846_S6 
+[2022-07-07 13:06:28] 	 processing sample: MB857_S11 
+[2022-07-07 13:06:28] 	 processing sample: MB858_S12 
+[2022-07-07 13:08:03] 	 processing sample: BE581_S3 
+[2022-07-07 13:08:03] 	 processing sample: BE585_S4 
+[2022-07-07 13:08:03] 	 processing sample: BE616_S9 
+[2022-07-07 13:08:03] 	 processing sample: BE617_S10 
+[2022-07-07 13:08:03] 	 processing sample: HM144_S1 
+[2022-07-07 13:08:03] 	 processing sample: HM148_S2 
+[2022-07-07 13:08:03] 	 processing sample: HM198_S7 
+[2022-07-07 13:08:03] 	 processing sample: HM199_S8 
+[2022-07-07 13:08:03] 	 processing sample: MB842_S5 
+[2022-07-07 13:08:03] 	 processing sample: MB846_S6 
+[2022-07-07 13:08:03] 	 processing sample: MB857_S11 
+[2022-07-07 13:08:03] 	 processing sample: MB858_S12 
+[2022-07-07 13:08:08] 	exported transcript level expression tpm 
+[2022-07-07 13:08:10] 	 processing sample: BE581_S3 
+[2022-07-07 13:08:10] 	 processing sample: BE585_S4 
+[2022-07-07 13:08:10] 	 processing sample: BE616_S9 
+[2022-07-07 13:08:10] 	 processing sample: BE617_S10 
+[2022-07-07 13:08:10] 	 processing sample: HM144_S1 
+[2022-07-07 13:08:10] 	 processing sample: HM148_S2 
+[2022-07-07 13:08:10] 	 processing sample: HM198_S7 
+[2022-07-07 13:08:10] 	 processing sample: HM199_S8 
+[2022-07-07 13:08:12] 	 processing sample: MB842_S5 
+[2022-07-07 13:08:12] 	 processing sample: MB846_S6 
+[2022-07-07 13:08:12] 	 processing sample: MB857_S11 
+[2022-07-07 13:08:12] 	 processing sample: MB858_S12 
+[2022-07-07 13:08:16] 	exported transcript level expression rawcounts 
+[2022-07-07 13:08:56] 	 processing sample: BE581_S3 
+[2022-07-07 13:08:56] 	 processing sample: BE585_S4 
+[2022-07-07 13:08:56] 	 processing sample: BE616_S9 
+[2022-07-07 13:08:56] 	 processing sample: BE617_S10 
+[2022-07-07 13:08:56] 	 processing sample: HM144_S1 
+[2022-07-07 13:08:56] 	 processing sample: HM148_S2 
+[2022-07-07 13:08:56] 	 processing sample: HM198_S7 
+[2022-07-07 13:08:56] 	 processing sample: HM199_S8 
+[2022-07-07 13:08:56] 	 processing sample: MB842_S5 
+[2022-07-07 13:08:56] 	 processing sample: MB846_S6 
+[2022-07-07 13:08:56] 	 processing sample: MB857_S11 
+[2022-07-07 13:08:57] 	 processing sample: MB858_S12 
+[2022-07-07 13:09:00] 	exported transcript level expression tpm 
+[2022-07-07 13:09:03] 	 processing sample: BE581_S3 
+[2022-07-07 13:09:03] 	 processing sample: BE585_S4 
+[2022-07-07 13:09:03] 	 processing sample: BE616_S9 
+[2022-07-07 13:09:03] 	 processing sample: BE617_S10 
+[2022-07-07 13:09:03] 	 processing sample: HM144_S1 
+[2022-07-07 13:09:03] 	 processing sample: HM148_S2 
+[2022-07-07 13:09:03] 	 processing sample: HM198_S7 
+[2022-07-07 13:09:03] 	 processing sample: HM199_S8 
+[2022-07-07 13:09:03] 	 processing sample: MB842_S5 
+[2022-07-07 13:09:03] 	 processing sample: MB846_S6 
+[2022-07-07 13:09:03] 	 processing sample: MB857_S11 
+[2022-07-07 13:09:03] 	 processing sample: MB858_S12 
+[2022-07-07 13:09:08] 	exported transcript level expression rawcounts 
+[2022-07-07 13:09:30] 	 processing sample: BE581_S3 
+[2022-07-07 13:09:30] 	 processing sample: BE585_S4 
+[2022-07-07 13:09:30] 	 processing sample: BE616_S9 
+[2022-07-07 13:09:30] 	 processing sample: BE617_S10 
+[2022-07-07 13:09:30] 	 processing sample: HM144_S1 
+[2022-07-07 13:09:30] 	 processing sample: HM148_S2 
+[2022-07-07 13:09:30] 	 processing sample: HM198_S7 
+[2022-07-07 13:09:30] 	 processing sample: HM199_S8 
+[2022-07-07 13:09:30] 	 processing sample: MB842_S5 
+[2022-07-07 13:09:30] 	 processing sample: MB846_S6 
+[2022-07-07 13:09:30] 	 processing sample: MB857_S11 
+[2022-07-07 13:09:30] 	 processing sample: MB858_S12 
+[2022-07-07 13:09:32] 	exported gene level expression rawcounts 
+[2022-07-07 13:57:17] 	 processing sample: BE581_S3 
+[2022-07-07 13:57:17] 	 processing sample: BE585_S4 
+[2022-07-07 13:57:17] 	 processing sample: BE616_S9 
+[2022-07-07 13:57:17] 	 processing sample: BE617_S10 
+[2022-07-07 13:57:17] 	 processing sample: HM144_S1 
+[2022-07-07 13:57:17] 	 processing sample: HM148_S2 
+[2022-07-07 13:57:17] 	 processing sample: HM198_S7 
+[2022-07-07 13:57:17] 	 processing sample: HM199_S8 
+[2022-07-07 13:57:17] 	 processing sample: MB842_S5 
+[2022-07-07 13:57:17] 	 processing sample: MB846_S6 
+[2022-07-07 13:57:17] 	 processing sample: MB857_S11 
+[2022-07-07 13:57:17] 	 processing sample: MB858_S12 
+[2022-07-07 13:57:19] 	exported gene level expression rawcounts 
+[2022-07-07 13:57:23] 	 processing sample: BE581_S3 
+[2022-07-07 13:57:23] 	 processing sample: BE585_S4 
+[2022-07-07 13:57:23] 	 processing sample: BE616_S9 
+[2022-07-07 13:57:23] 	 processing sample: BE617_S10 
+[2022-07-07 13:57:23] 	 processing sample: HM144_S1 
+[2022-07-07 13:57:23] 	 processing sample: HM148_S2 
+[2022-07-07 13:57:23] 	 processing sample: HM198_S7 
+[2022-07-07 13:57:23] 	 processing sample: HM199_S8 
+[2022-07-07 13:57:23] 	 processing sample: MB842_S5 
+[2022-07-07 13:57:23] 	 processing sample: MB846_S6 
+[2022-07-07 13:57:23] 	 processing sample: MB857_S11 
+[2022-07-07 13:57:23] 	 processing sample: MB858_S12 
+[2022-07-07 13:57:25] 	exported gene level expression tpm 

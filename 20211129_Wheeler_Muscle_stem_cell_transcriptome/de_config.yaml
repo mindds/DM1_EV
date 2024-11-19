@@ -1,0 +1,7 @@
+"path_de_out": "/space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome/DE"
+"decontrast_table" : "/space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/DEcontrastTable.csv"
+"meta_table" : "/space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/sampleMeta.csv"
+"logFC_cut" : 0
+"p_cut" : 0.05
+"logCPM_cut" : 0
+"pct_cut" : 0.3

@@ -1,0 +1,186 @@
+---
+title: "Untitled"
+author: "Zhaozhi Li"
+date: "3/31/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rdir = file.path("..", "results", "20211129_Wheeler_Muscle_stem_cell_transcriptome", "archive")
+sdirs = list.files(rdir) 
+sdirs = sdirs[!sdirs %in% c("tmp", "se")]
+
+quant_files = list.files(file.path(rdir, sdirs, "salmon"),pattern="quant.genes.sf",recursive = TRUE,full.names = TRUE)
+
+names(quant_files) = sdirs
+quant_file = quant_files[1]
+
+quants = lapply(names(quant_files), function(sample){
+  cat("sample:", sample, "\n")
+  quant_file = quant_files[sample]
+  quant = fread(quant_file)[, .(Name, TPM)]
+  setnames(quant, "TPM", names(quant_file))
+  return(quant)
+})
+lapply(quants, function(dt){
+  all(dt$Name == quants[[1]]$Name)
+})
+
+tpm = Reduce(merge, quants)
+```
+
+
+# distribution
+```{r}
+tpm_p = melt(tx_tpm, id.vars = "Name", variable.name = "samples", 
+     value.name = "TPM")
+
+ggplot(tpm_p, aes(x = samples, y = log2(TPM))) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ggthemes::theme_few()
+ggsave("quant.pdf", width = 12)
+
+ggplot(
+    pdt, 
+    aes_string(x = "samples", y = y_var)
+  ) +
+    geom_boxplot() +
+    theme(
+      axis.text.x = element_text(
+        angle = 90, vjust = 0.5, hjust=1
+      )
+    ) +
+    labs(
+      x = samples, 
+      y = exp.unit,
+      title = paste0("Distribution of ", exp.type, " expression levels (", exp.unit, ")")
+    )
+```
+
+# PCA on 
+```{r}
+tpm2 = copy(tpm)
+tpm2[, mean_exp := rowMeans(tpm[, -1])]
+# select data for the 1000 most highly expressed genes
+select = tpm2[order(mean_exp, decreasing = T), ] %>%
+  head(1000) %>%
+  .[, Name]
+highexprgenes_tpm = tpm[Name %in% select,] %>%
+  as.data.frame() %>%
+  column_to_rownames("Name")
+groups = substr(colnames(highexprgenes_tpm), 1, 2)
+# annotate the data with condition group as labels
+# colnames(highexprgenes_tpm) =  groups
+# transpose the data to have variables (genes) as columns
+data_for_PCA = t(log2(highexprgenes_tpm + 0.01))
+dim(data_for_PCA)
+
+## calculate MDS (matrix of dissimilarities)
+mds = cmdscale(dist(data_for_PCA), k=3, eig=TRUE)  
+
+# transform the Eigen values into percentage
+eig_pc <- mds$eig * 100 / sum(mds$eig)
+# plot the PCA
+png(file="PCA_PropExplainedVariance.png")
+barplot(eig_pc,
+     las=1,
+     xlab="Dimensions", 
+     ylab="Proportion of explained variance (%)", y.axis=NULL,
+     col="darkgrey")
+dev.off()
+
+## calculate MDS
+mds <- cmdscale(dist(data_for_PCA)) # Performs MDS analysis 
+
+#Samples representation
+png(file="PCA_Dim1vsDim2.png")
+plot(mds[,1], -mds[,2], type="n", xlab="Dimension 1", ylab="Dimension 2", main="")
+text(mds[,1], -mds[,2], rownames(mds), cex=0.8) 
+dev.off()
+
+sampleinfo = data.frame(sample = colnames(highexprgenes_tpm),
+                        groups = groups)
+# Perform the PCA
+sample_pca <- prcomp(data_for_PCA)
+# The PC scores are stored in the "x" value of the prcomp object
+pc_scores <- sample_pca$x
+pc_scores
+
+pc_scores = pc_scores %>% 
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as.data.table()
+pc_scores[, group := substr(sample, 1, 2)]
+
+  # create the plot
+ggplot(pc_scores, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = groups)) +
+  geom_text(aes(label = sample)) +
+  ggthemes::theme_few()
+ggsave("PCA.pdf")
+```
+
+
+# transcript quants
+```{r}
+quant_files = list.files(file.path(rdir, sdirs, "salmon"), pattern="quant.genes.sf",recursive = TRUE,full.names = TRUE)
+
+names(quant_files) = sdirs
+quant_file = quant_files[1]
+
+quants_g_c = lapply(names(quant_files), function(sample){
+  cat("sample:", sample, "\n")
+  quant_file = quant_files[sample]
+  quant = fread(quant_file)[, .(Name, NumReads)]
+  setnames(quant, "NumReads", names(quant_file))
+  return(quant)
+})
+lapply(quants, function(dt){
+  all(dt$Name == quants[[1]]$Name)
+})
+
+counts = Reduce(merge, quants_g_c)
+```
+
+# report
+```{r}
+counts_p = melt(counts, id.vars = "Name", variable.name = "samples", value.name = "counts")
+counts_p[, Gene_stable_ID := gsub("\\.\\d*$", "", Name)]
+counts_p[annot, on = .(Gene_stable_ID), gene_biotype := i.Gene_type]
+counts_p[, group := substr(samples, 1, 2)]
+dt_p = counts_p[, .(total_reads = sum(counts)), by = .(samples, group, gene_biotype)]
+dt_p[, pct := total_reads/sum(total_reads), by = .(samples, gene_biotype)]
+
+p = ggplot(
+  data = dt_p,
+  aes(x = samples, y = total_reads, fill = gene_biotype)
+) +
+  geom_bar(
+    stat="identity", 
+    position = position_stack(reverse=TRUE)
+  ) +
+  facet_grid(.~ group, space = "free", scales = "free") +
+  ggthemes::theme_few() +
+  # scale_fill_manual(values = c(
+  #   "protein_coding" = "black"
+  # )) +
+  theme(
+    axis.text.x = element_text(
+      angle = 90, vjust = 0.5, hjust=1
+    ),
+    legend.position = "bottom"
+  ) +
+  labs(x = "samples", y = "counts")
+p
+
+
+require(plotly)
+ply = ggplotly(p)
+htmlwidgets::saveWidget(as_widget(ply), 
+                        file.path("..", "results", "20211129_Wheeler_Muscle_stem_cell_transcriptome", "reports", "gene_biotypes.html"))
+
+ggsave(p, filename = file.path("..", "results", "20211129_Wheeler_Muscle_stem_cell_transcriptome", "reports", "gene_biotypes.pdf"), height = 7, width = 10)
+```
+

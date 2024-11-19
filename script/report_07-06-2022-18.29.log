@@ -1,0 +1,100 @@
+
+
+[2022-07-06 18:29:50] load sample meta data file
+[2022-07-06 18:29:50] 	path: /space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/sampleMeta.csv 
+
+
+[2022-07-06 18:29:50] processing salmon quant files
+[2022-07-06 18:29:50] num of aligned samples: 12 
+[2022-07-06 18:29:50] 	 processing sample: BE581_S3 
+[2022-07-06 18:29:50] 	 processing sample: BE585_S4 
+[2022-07-06 18:29:50] 	 processing sample: BE616_S9 
+[2022-07-06 18:29:50] 	 processing sample: BE617_S10 
+[2022-07-06 18:29:50] 	 processing sample: HM144_S1 
+[2022-07-06 18:29:50] 	 processing sample: HM148_S2 
+[2022-07-06 18:29:50] 	 processing sample: HM198_S7 
+[2022-07-06 18:29:50] 	 processing sample: HM199_S8 
+[2022-07-06 18:29:50] 	 processing sample: MB842_S5 
+[2022-07-06 18:29:50] 	 processing sample: MB846_S6 
+[2022-07-06 18:29:50] 	 processing sample: MB857_S11 
+[2022-07-06 18:29:50] 	 processing sample: MB858_S12 
+[2022-07-06 18:29:52] 	exported gene level expression rawcounts 
+[2022-07-06 18:29:52] saved gene level expression counts
+[2022-07-06 18:29:52] 	 processing sample: BE581_S3 
+[2022-07-06 18:29:52] 	 processing sample: BE585_S4 
+[2022-07-06 18:29:52] 	 processing sample: BE616_S9 
+[2022-07-06 18:29:52] 	 processing sample: BE617_S10 
+[2022-07-06 18:29:52] 	 processing sample: HM144_S1 
+[2022-07-06 18:29:52] 	 processing sample: HM148_S2 
+[2022-07-06 18:29:52] 	 processing sample: HM198_S7 
+[2022-07-06 18:29:52] 	 processing sample: HM199_S8 
+[2022-07-06 18:29:52] 	 processing sample: MB842_S5 
+[2022-07-06 18:29:52] 	 processing sample: MB846_S6 
+[2022-07-06 18:29:52] 	 processing sample: MB857_S11 
+[2022-07-06 18:29:52] 	 processing sample: MB858_S12 
+[2022-07-06 18:29:55] 	exported gene level expression tpm 
+[2022-07-06 18:29:55] saved gene level TPM
+[2022-07-06 18:29:55] 	 processing sample: BE581_S3 
+[2022-07-06 18:29:55] 	 processing sample: BE585_S4 
+[2022-07-06 18:29:55] 	 processing sample: BE616_S9 
+[2022-07-06 18:29:55] 	 processing sample: BE617_S10 
+[2022-07-06 18:29:55] 	 processing sample: HM144_S1 
+[2022-07-06 18:29:55] 	 processing sample: HM148_S2 
+[2022-07-06 18:29:55] 	 processing sample: HM198_S7 
+[2022-07-06 18:29:56] 	 processing sample: HM199_S8 
+[2022-07-06 18:29:56] 	 processing sample: MB842_S5 
+[2022-07-06 18:29:56] 	 processing sample: MB846_S6 
+[2022-07-06 18:29:56] 	 processing sample: MB857_S11 
+[2022-07-06 18:29:56] 	 processing sample: MB858_S12 
+[2022-07-06 18:30:00] 	exported transcript level expression rawcounts 
+[2022-07-06 18:30:00] 	saved transcript level counts
+[2022-07-06 18:30:00] 	 processing sample: BE581_S3 
+[2022-07-06 18:30:00] 	 processing sample: BE585_S4 
+[2022-07-06 18:30:00] 	 processing sample: BE616_S9 
+[2022-07-06 18:30:00] 	 processing sample: BE617_S10 
+[2022-07-06 18:30:00] 	 processing sample: HM144_S1 
+[2022-07-06 18:30:00] 	 processing sample: HM148_S2 
+[2022-07-06 18:30:00] 	 processing sample: HM198_S7 
+[2022-07-06 18:30:00] 	 processing sample: HM199_S8 
+[2022-07-06 18:30:00] 	 processing sample: MB842_S5 
+[2022-07-06 18:30:00] 	 processing sample: MB846_S6 
+[2022-07-06 18:30:00] 	 processing sample: MB857_S11 
+[2022-07-06 18:30:00] 	 processing sample: MB858_S12 
+[2022-07-06 18:30:05] 	exported transcript level expression tpm 
+[2022-07-06 18:30:05] 	saved transcript level TPM
+[2022-07-06 18:30:05] 	 processing sample: BE581_S3 
+[2022-07-06 18:30:05] 	 processing sample: BE585_S4 
+[2022-07-06 18:30:05] 	 processing sample: BE616_S9 
+[2022-07-06 18:30:05] 	 processing sample: BE617_S10 
+[2022-07-06 18:30:05] 	 processing sample: HM144_S1 
+[2022-07-06 18:30:05] 	 processing sample: HM148_S2 
+[2022-07-06 18:30:05] 	 processing sample: HM198_S7 
+[2022-07-06 18:30:05] 	 processing sample: HM199_S8 
+[2022-07-06 18:30:05] 	 processing sample: MB842_S5 
+[2022-07-06 18:30:05] 	 processing sample: MB846_S6 
+[2022-07-06 18:30:05] 	 processing sample: MB857_S11 
+[2022-07-06 18:30:05] 	 processing sample: MB858_S12 
+[2022-07-06 18:30:05] barplot of alignment stats
+[2022-07-06 18:30:05] 	exported alignment stats
+[2022-07-06 18:30:06] barplot of counts per biotypes
+[2022-07-06 18:30:08] 	exported plotly figure at: /space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome/salmon/reports/barplot_gene_biotypes.html 
+[2022-07-06 18:30:10] 	exported barplot of biotypes
+[2022-07-06 18:30:10] calculate cpm by edgeR
+[2022-07-06 18:30:10] expressed genes: logcpm > 0 in at least 30 % of the samples
+[2022-07-06 18:30:11] 	saved expressed genes at: /space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome/salmon/exp/expressed_genes_ids.txt
+[2022-07-06 18:30:11] distribution of gene counts 
+[2022-07-06 18:30:11] density plot of gene counts 
+[2022-07-06 18:30:13] 	exported density plot
+[2022-07-06 18:30:13] boxplot of gene counts 
+[2022-07-06 18:30:16] 	exported boxplot
+[2022-07-06 18:30:16] select gene for sample evaluations
+[2022-07-06 18:30:16] 	use feature gene 
+[2022-07-06 18:30:16] 	use expression unit tpm 
+[2022-07-06 18:30:16] 	use hight expressed 1000 features
+[2022-07-06 18:30:16] PCA & MDS plots
+[2022-07-06 18:30:16] performs MDS analysis
+[2022-07-06 18:30:16] explorted MDS plot
+[2022-07-06 18:30:16] perform PCA
+[2022-07-06 18:30:16] explorted PCA plot
+[2022-07-06 18:30:17] Done
+

@@ -1,0 +1,496 @@
+---
+title: "DE analysis.Rmd"
+author: "Vamshi"
+date: "7/7/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+script_dir = "/space/mindds/1/projects/ThurmanRNASeq/scripts"
+knitr::opts_chunk$set(
+  root.dir = script_dir, 
+  echo = FALSE, warning = FALSE, message = FALSE
+)
+
+#-------------------------------------------------------------------------------
+# dependencies
+#-------------------------------------------------------------------------------
+suppressMessages({
+  require(data.table)
+  require(tidyverse)
+  require(plotly)
+  require(yaml)
+  require(ggpubr)
+  require(ggrepel)
+  require(ComplexHeatmap)
+  require(edgeR)
+  require(DESeq2)
+  require(limma)
+})
+
+#source("../functions/de_analysis_functions.R")
+# source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/de_analysis_functions.R")
+# source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/blog_functions.R")
+# source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/plot_functions.R")
+# source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/gene_expression_analysis.R")
+```
+
+
+```{r}
+#-------------------------------------------------------------------------------
+# parameters
+#-------------------------------------------------------------------------------
+# hardcode parameters
+params = list(
+  annot_f = "/space/mindds/1/pipelines/rnaseq-pipeline/annotation/Mouse/GRCm39/mart_annotation.txt",
+  salmondir = "/space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome/salmon",
+  dedir = "/space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome/DE",
+  meta_f = "/space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/sampleMeta.csv",
+  decontrast_f = "/space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/DEcontrastTable.csv",
+  logCPM_cut = 0,
+  pct_cut = 0.3,
+  logFC_cut = 0,
+  p_cut = 0.05, 
+  config_f = "/space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/de_config.yaml",
+  script_dir = "/space/mindds/1/projects/ThurmanRNASeq/scripts",
+  filtered_genes_f = ""
+)
+```
+
+```{r}
+annot_f = params$annot_f
+meta_f = params$meta_f
+expdir = file.path(params$salmondir, "exp")
+dedir = params$dedir
+logCPM_cut = params$logCPM_cut
+decontrast_f = params$decontrast_f
+pct_cut = params$pct_cut
+p_cut = params$p_cut
+logFC_cut = params$logFC_cut
+config_f = params$config_f
+filtered_genes_f = params$filtered_genes_f
+
+```
+
+```{r}
+#-------------------------------------------------------------------------------
+# set up
+#------------------------------------------------------------------------------
+source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/blog_functions.R")
+# set up result dirs
+if(!dir.exists(dedir)){
+  blog(systime(), "create DE analysis results directory at:", dedir)
+  system(paste0("mkdir -p ", dedir))
+}
+```
+
+```{r}
+#-------------------------------------------------------------------------------
+# load data
+#-------------------------------------------------------------------------------
+
+# load sample meta data
+blog("\n")
+blog(systime(), "load sample meta data file")
+blog(systime(), "\tpath:", meta_f,"")
+meta = fread(meta_f)
+
+# load contrast table
+blog(systime(), "load contrast table")
+blog(systime(), "\tpath:", decontrast_f,"")
+contrast_tbl = fread(decontrast_f)
+```
+
+```{r}
+# load raw counts
+blog(systime(), "load gene level raw counts")
+blog(systime(), "\tpath:", file.path(expdir, "gene_rawcounts.csv"))
+counts = fread(file.path(expdir, "gene_rawcounts.csv"))
+head(counts)
+```
+
+```{r}
+blog(systime(), "\tuse expressed genes from:", file.path(expdir, "expressed_genes_ids.txt"))
+expressed_genes = readLines(file.path(expdir, "expressed_genes_ids.txt"))
+head(expressed_genes)
+counts = counts[Name %in% expressed_genes, ] %>%
+   as.data.frame() %>%
+   column_to_rownames("Name")
+head(counts)
+length(counts)
+```
+
+
+
+
+
+```{r}
+# gene annotation
+annot = fread(annot_f)
+colnames(annot) = gsub(" ", "_", colnames(annot))
+gene_symbols = annot[, .(Gene_stable_ID, Gene_name)] %>%
+  unique() %>%
+  .[data.table(Gene_stable_ID = gsub("\\.\\d*$", "", rownames(counts))), 
+    on = .(Gene_stable_ID), 
+    Gene_name]
+gene_annot = data.frame(
+  row.names = rownames(counts), 
+  gene_id = gsub("\\.\\d*$", "", rownames(counts)),
+  symbol = gene_symbols
+)
+head(gene_annot)
+```
+
+```{r}
+
+# re-order meta
+meta = meta[
+  data.table(sampleID = colnames(counts)),
+  on = .(sampleID)
+] %>%
+  as.data.frame()
+rownames(meta) = meta$sampleID
+
+```
+
+
+# edgeR
+```{r}
+blog(systime(), "edgeR analysis")
+d = DGEList(
+  counts = counts,
+  genes = gene_annot,
+  samples = meta,
+  group=factor(meta$group)
+)
+blog(systime(), "normalization: trimmed mean of M-values (TMM)")
+d = calcNormFactors(d)
+
+
+plotMDS(d, method="bcv", col=as.numeric(d$samples$group))
+legend("bottomleft", as.character(unique(d$samples$group)), col=1:3, pch=20)
+```
+
+```{r}
+# estimating the Dispersion
+d1 = estimateCommonDisp(d, verbose=T)
+d1 = estimateTagwiseDisp(d1)
+plotBCV(d1)
+
+design.mtx = model.matrix(~ 0 + d$samples$group)
+colnames(design.mtx) = levels(d$samples$group)
+d2 = estimateGLMCommonDisp(d,design.mtx)
+d2 = estimateGLMTrendedDisp(d2,design.mtx, method="power")
+d2 = estimateGLMTagwiseDisp(d2,design.mtx)
+plotBCV(d2)
+```
+
+```{r}
+source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/de_analysis_functions.R")
+fit = glmFit(d2, design.mtx)
+
+
+contrast_tbl = add_contrast_idx(
+  design.mtx = design.mtx,
+  contrast_tbl = contrast_tbl
+)
+
+```
+
+```{r}
+contrast_tbl[, edgeR_lr := .(.(
+  glmLRT(
+    fit, 
+    contrast = get_contrast_idx(
+      numerator.idx = numerator_idx,
+      denominator.idx = denominator_idx,
+      design.mtx = design.mtx
+    )))), 
+  by = .(contrast_label)]
+```
+
+```{r}
+# edgeR test
+contrast_tbl[, edgeR_de := .(lapply(edgeR_lr, function(lr){
+    decideTestsDGE(lr, adjust.method="BH", p.value = 0.05)
+  })), 
+  by = .(contrast_label)]
+```
+
+```{r}
+# result tags
+contrast_tbl[, edgeR_tag := .(lapply(edgeR_lr, function(lr){
+    topTags(lr, n=Inf, sort.by = "none")
+  })), 
+  by = .(contrast_label)]
+
+# test: glm
+contrast_tbl[, edgeR_test := lapply(edgeR_tag, function(tag) tag$test), 
+             by = .(contrast_label)]
+# p value adjust method: BH
+contrast_tbl[, edgeR_adjust.method := lapply(edgeR_tag, function(tag) tag$adjust.method), 
+             by = .(contrast_label)]
+# add comparison
+contrast_tbl[, edgeR_comparison := lapply(edgeR_tag, function(tag) tag$comparison), 
+             by = .(contrast_label)]
+
+# save top tables
+contrast_tbl[, edgeR_tT_file := lapply(edgeR_tag, function(tag){
+    tT = tag$table %>% as.data.table()
+    f = file.path(dedir, paste0("edgeR_", contrast_label, ".csv"))
+    fwrite(tT, file = f)
+    return(f)
+  }), 
+  by = .(contrast_label)]
+```
+
+
+## results
+```{r}
+DT::datatable(
+  contrast_tbl[, .(contrast_label, numerator, denominator, edgeR_tT_file)]
+)
+```
+
+## volcano plots (adjusted p.value)
+- up-regulated genes:
+  - adjusted p.value < `r p_cut`
+  - logFC > `r logFC_cut`
+- down-regulated genes:
+  - adjusted p.value < `r p_cut`
+  - logFC < `r logFC_cut`
+
+```{r, results='hide'}
+config_f = "/space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/de_config.yaml"
+source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/plot_functions.R")
+source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/gene_expression_analysis.R")
+source("/space/mindds/1/pipelines/rnaseq-pipeline/R/functions/de_analysis_functions.R")
+contrast_tbl[, edgeR_volcano_adjp := .(.(get_volcano(
+  tT_f = edgeR_tT_file, 
+  method = "edgeR", 
+  contrast_label = contrast_label, 
+  p_cut = p_cut, 
+  logFC_cut = logFC_cut, 
+  use_adjp = T, 
+  n_label = 10,
+  dedir = dedir,
+  height = 5,
+  width = 7
+))), by = .(contrast_label)]
+contrast_tbl$edgeR_volcano_adjp
+```
+
+
+
+## volcano plots (nom p.value)
+- up-regulated genes:
+  - nom p.value < `r p_cut`
+  - logFC > `r logFC_cut`
+- down-regulated genes:
+  - nom p.value < `r p_cut`
+  - logFC < `r logFC_cut`
+
+```{r, results='hide'}
+contrast_tbl[, edgeR_volcano_p := .(.(get_volcano(
+  tT_f = edgeR_tT_file, 
+  method = "edgeR", 
+  contrast_label = contrast_label, 
+  p_cut = p_cut, 
+  logFC_cut = logFC_cut, 
+  use_adjp = F, 
+  n_label = 10,
+  dedir = dedir,
+  height = 5,
+  width = 7
+))), by = .(contrast_label)]
+contrast_tbl$edgeR_volcano_p
+```
+
+
+
+# DESeq2
+```{r}
+# all(rownames(gene_annot) == rownames(counts))
+dds = DESeqDataSetFromMatrix(
+  countData = counts %>% round(), 
+  colData = meta, 
+  design = ~ group, 
+  tidy = FALSE
+)
+
+dds = DESeq(dds)
+
+contrast_tbl[, DESeq2_tT_file := get_DESeq2_tT(
+  dds = dds,
+  gene_annot = gene_annot, 
+  contrast_label = contrast_label,
+  numerator = numerator,
+  denominator = denominator,
+  dedir = dedir
+), by = .(contrast_label)]
+```
+
+## results
+```{r}
+DT::datatable(
+  contrast_tbl[, .(contrast_label, numerator, denominator, DESeq2_tT_file)]
+)
+```
+
+
+## volcano plots (adjusted p.value)
+
+- up-regulated genes:
+  - adjusted p.value < `r p_cut`
+  - logFC > `r logFC_cut`
+- down-regulated genes:
+  - adjusted p.value < `r p_cut`
+  - logFC < `r logFC_cut`
+  
+```{r, results='hide'}
+contrast_tbl[, DESeq2_volcano_adjp := .(.(get_volcano(
+  tT_f = DESeq2_tT_file, 
+  method = "DESeq2", 
+  contrast_label = contrast_label, 
+  p_cut = p_cut, 
+  logFC_cut = logFC_cut, 
+  use_adjp = T, 
+  n_label = 10,
+  dedir = dedir,
+  height = 5,
+  width = 7
+))), by = .(contrast_label)]
+contrast_tbl$DESeq2_volcano_adjp
+```
+
+
+
+
+## volcano plots (nom p.value)
+
+- up-regulated genes:
+  - nom p.value < `r p_cut`
+  - logFC > `r logFC_cut`
+- down-regulated genes:
+  - nom p.value < `r p_cut`
+  - logFC < `r logFC_cut`
+  
+```{r, results='hide'}
+contrast_tbl[, DESeq2_volcano_p := .(.(get_volcano(
+  tT_f = DESeq2_tT_file, 
+  method = "DESeq2", 
+  contrast_label = contrast_label, 
+  p_cut = p_cut, 
+  logFC_cut = logFC_cut, 
+  use_adjp = F, 
+  n_label = 10,
+  dedir = dedir,
+  height = 5,
+  width = 7
+))), by = .(contrast_label)]
+contrast_tbl$DESeq2_volcano_p
+```
+
+
+
+# limma
+```{r}
+d = DGEList(
+  counts = counts,
+  genes = gene_annot,
+  samples = meta,
+  group=factor(meta$group)
+)
+
+# normalization
+d = calcNormFactors(d)
+
+# voom
+v = voom(d, design.mtx, plot = T)
+
+# fit
+fit = lmFit(v, design.mtx)
+
+# contrast fit
+contrast_tbl[, limma_comparison := paste(numerator, denominator, sep = "-")]
+contr = makeContrasts(
+  contrasts = contrast_tbl$limma_comparison, 
+  levels = colnames(coef(fit))
+)
+cfit = contrasts.fit(fit, contr)
+
+# eBayes
+efit = eBayes(cfit)
+
+# toptables
+contrast_tbl[, limma_tT_file := get_limma_tT(
+  efit = efit,
+  limma_comparison = limma_comparison,
+  contrast_label = contrast_label,
+  dedir = dedir
+), by = .(contrast_label)]
+```
+
+## results
+```{r}
+DT::datatable(
+  contrast_tbl[, .(limma_comparison, numerator, denominator, limma_tT_file)]
+)
+```
+
+## volcano plots (adjusted p.value)
+
+- up-regulated genes:
+  - adjusted p.value < `r p_cut`
+  - logFC > `r logFC_cut`
+- down-regulated genes:
+  - adjusted p.value < `r p_cut`
+  - logFC < `r logFC_cut`
+  
+```{r, results='hide'}
+contrast_tbl[, limma_volcano_adjp := .(.(get_volcano(
+  tT_f = limma_tT_file, 
+  method = "limma", 
+  contrast_label = contrast_label, 
+  p_cut = p_cut, 
+  logFC_cut = logFC_cut, 
+  use_adjp = T, 
+  n_label = 10,
+  dedir = dedir,
+  height = 5,
+  width = 7
+))), by = .(contrast_label)]
+contrast_tbl$limma_volcano_adjp
+```
+
+
+
+
+## volcano plots (nom p.value)
+
+- up-regulated genes:
+  - nom p.value < `r p_cut`
+  - logFC > `r logFC_cut`
+- down-regulated genes:
+  - nom p.value < `r p_cut`
+  - logFC < `r logFC_cut`
+  
+```{r, results='hide'}
+contrast_tbl[, limma_volcano_p := .(.(get_volcano(
+  tT_f = limma_tT_file, 
+  method = "limma", 
+  contrast_label = contrast_label, 
+  p_cut = p_cut, 
+  logFC_cut = logFC_cut, 
+  use_adjp = F, 
+  n_label = 10,
+  dedir = dedir,
+  height = 5,
+  width = 7
+))), by = .(contrast_label)]
+contrast_tbl$limma_volcano_p
+```
+
+
