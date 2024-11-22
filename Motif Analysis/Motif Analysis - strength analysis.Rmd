@@ -1,0 +1,528 @@
+---
+title: "Motif strength analysis"
+author: "Zhaozhi Li"
+date: "3/28/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required packages
+require(pbapply)
+require(seqinr)
+
+data_dir = file.path("..", "results", "Gene_sequences_for_binding_motifs")
+
+source("motif_functions.R")
+utr_dt = fread("utr_dt.csv")
+# utr_dt = binding_dt[group == "3' UTR", ]
+utr_dt[, k := nchar(binding_site)]
+#fwrite(utr_dt, file.path("utr_dt.csv"))
+```
+
+
+```{r}
+strength_analysis = function(
+  full_f, seq_f,
+  gene_name,
+  exon_idxes, 
+  start_with_exon,
+  end_with_exon, 
+  binding_dt,
+  base_abb,
+  seqs_r_stopc)
+{
+  
+  cat("load full length sequence.\n")
+  seq_full = read.fasta(file.path(data_dir, full_f), as.string = T)
+  cat("load target sequence.\n")
+  exon_seq = load_seq(file.path(data_dir, seq_f))
+  
+  cat("load sequence elements.\n")
+  exon_e = annot_seq(
+    seq = exon_seq,
+    gene_name = gene_name,
+    exon_idxes = exon_idxes,
+    start_with_exon = start_with_exon,
+    end_with_exon = end_with_exon,
+    seqs_r_stopc = seqs_r_stopc
+  )
+  
+  cat("perform analysis.\n")
+  use_target_element_id = "3_UTR"
+  # seqeunce of the target element
+  target_seq = exon_e[id == use_target_element_id, seq]
+  
+  # binding sites in target region
+  cat("analysis target region ..\n")
+  target_b = hightlight_motif(
+    binding_dt = binding_dt, 
+    base_abb = base_abb,
+    seq = target_seq,
+    seq_annot = make_seq_annot(
+      seq = target_seq,
+      gene = use_target_element_id,
+      category = use_target_element_id,
+      id = use_target_element_id
+    )
+  )
+
+  
+  # is there any matches concatenate with each other
+  test_target_b = copy(target_b)
+  test_target_b[, binding_gene := gsub("_3UTR", "", binding_gene)]
+  test_target_b[, id := rownames(test_target_b)]
+  test_ids = test_target_b[!is.na(start), id]
+  for(test_id in test_ids){
+    test_target_b = is_concatenate(test_id, test_target_b)
+  }
+ 
+  # get min start for same end
+  concate_target = test_target_b[has_maxend_concatenate == T, .(start = min(start)), by = .(end, binding_gene)]
+  concate_target[, c_binding_site := substr(x = target_seq, start = start, stop = end), by = rownames(concate_target)]
+  c_binding_dt = concate_target[, .(binding_gene,
+                                    binding_site = c_binding_site,
+                                    source = "concatenate analysis",
+                                    note = "",
+                                    group = "3' UTR")]
+  c_binding_dt[, k := nchar(binding_site)]
+  
+  st = seq_analysis(
+    full_f = full_f,
+    seq_f = seq_f,
+    gene_name = gene_name,
+    exon_idxes = exon_idxes, 
+    start_with_exon = start_with_exon,
+    end_with_exon = end_with_exon, 
+    binding_dt = c_binding_dt,
+    base_abb = base_abb,
+    seqs_r_stopc = seqs_r_stopc
+  )
+  return(st[target_element_id == use_target_element_id,])
+  
+}
+
+
+
+is_concatenate = function(test_id, target_b){
+  tests = copy(target_b)
+  tests = tests[!is.na(start), ]
+  
+  test_gene = tests[id == test_id, binding_gene]
+  test_start = tests[id == test_id, start]
+  test_end = tests[id == test_id, end]
+  
+  is_concate = tests[, start] <= test_end & tests[, start!=test_start & end!=test_end & binding_gene == test_gene]
+  if(any(is_concate == T)){
+    max_end = tests[is_concate == T, max(end)]
+    tests[id == test_id, has_concatenate := T]
+    if(max_end > test_end){
+      tests[id == test_id, end := max_end]
+      tests[id == test_id, has_maxend_concatenate := T]
+      is_concatenate(test_id, tests)
+    }else{
+      return(tests)
+    }
+  }else{
+    return(tests)
+  }
+  
+}
+
+
+```
+
+
+## PCK1 
+```{r}
+PCK1_tests = strength_analysis(
+  full_f = "PCK1_full.fasta",
+  seq_f = "PCK1_3'UTR_011022.rtf",
+  gene_name = "PCK1",
+  exon_idxes = 1:10, 
+  start_with_exon = T,
+  end_with_exon = T, 
+  binding_dt = binding_dt,
+  base_abb = base_abb,
+  seqs_r_stopc = "CAAAGAATAAGCCAGATGTAA"
+)
+
+
+
+PCK1_tests[chi_p < 0.05 | adj_chi_p < 0.05, ] 
+PCK1_tests[adj_chi_p < 0.05,]
+
+
+
+```
+
+
+## HPD
+MBNL
+
+```{r warning=FALSE}
+HPD_tests = strength_analysis(
+  full_f = "HPD_full.fasta",
+  seq_f = "HPD_3'UTR_011022.rtf",
+  gene_name = "HPD",
+  exon_idxes = 12:14, 
+  start_with_exon = T,
+  end_with_exon = F, 
+  binding_dt = binding_dt,
+  base_abb = base_abb,
+  seqs_r_stopc = "CCAATGGGGTGGTGCCCGGCATGTAA"
+)
+
+HPD_tests[(chi_p < 0.05 | adj_chi_p < 0.05) & target_element_id == "3_UTR", ] 
+HPD_tests[adj_chi_p < 0.05 & target_element_id == "3_UTR",]
+```
+
+
+
+
+
+
+
+
+
+## DPYS
+
+
+```{r warning=FALSE}
+DPYS_tests = strength_analysis(
+  full_f = "DPYS_full.fasta",
+  seq_f = "DPYS_3'UTR_011022.rtf",
+  gene_name = "DPYS",
+  exon_idxes = 9:10, 
+  start_with_exon = T,
+  end_with_exon = F, 
+  binding_dt = binding_dt,
+  base_abb = base_abb,
+  # seqs_r_stopc = "CCAGGAAACAGGCCCACCCCTGA"
+  seqs_r_stopc = "TAATAAACATTGAGATCTTCATTTTA"
+)
+
+DPYS_tests[(chi_p < 0.05 | adj_chi_p < 0.05) & target_element_id == "3_UTR", ] 
+DPYS_tests[adj_chi_p < 0.05 & target_element_id == "3_UTR",]
+View(DPYS_tests[target_element_id == "3_UTR",])
+```
+
+
+
+
+
+
+
+
+
+
+
+
+## GSTA1
+both
+
+```{r warning=FALSE}
+GSTA1_tests = strength_analysis(
+  full_f = "GSTA1_full.fasta",
+  seq_f = "GSTA1_3'UTR_011122.rtf",
+  gene_name = "GSTA1",
+  exon_idxes = 6:7, 
+  start_with_exon = T,
+  end_with_exon = F, 
+  binding_dt = binding_dt,
+  base_abb = base_abb,
+  seqs_r_stopc = "TTTAGAAGAAGCAAGGAAGATTTTCAGGTTTTAA"
+)
+
+GSTA1_tests[(chi_p < 0.05 | adj_chi_p < 0.05) & target_element_id == "3_UTR", ] 
+GSTA1_tests[adj_chi_p < 0.05 & target_element_id == "3_UTR",]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+## BIN1
+both
+
+```{r warning=FALSE}
+BIN1_tests = strength_analysis(
+  full_f = "BIN1_full.fasta",
+  seq_f = "BIN1_3'UTR_011122.rtf",
+  gene_name = "BIN1",
+  exon_idxes = 17:19, 
+  start_with_exon = T,
+  end_with_exon = F, 
+  binding_dt = binding_dt,
+  base_abb = base_abb,
+  seqs_r_stopc = "CCCCGAGAACTTCACTGAGAGGGTCCCATGA"
+)
+
+BIN1_tests[(chi_p < 0.05 | adj_chi_p < 0.05) & target_element_id == "3_UTR", ] 
+BIN1_tests[adj_chi_p < 0.05 & target_element_id == "3_UTR",]
+```
+
+
+
+
+
+
+
+
+
+
+
+## PIGT
+nothing
+
+```{r warning=FALSE}
+PIGT_tests = strength_analysis(
+  full_f = "PIGT_full.fasta",
+  seq_f = "PIGT_3'UTR_011122.rtf",
+  gene_name = "PIGT",
+  exon_idxes = 10:12, 
+  start_with_exon = T,
+  end_with_exon = F, 
+  binding_dt = binding_dt,
+  base_abb = base_abb,
+  seqs_r_stopc = "GCTGGCCAACCTTATCCGGCGCGCCCGAGGTGTCCCCCCACTCTGA"
+)
+
+PIGT_tests[(chi_p < 0.05 | adj_chi_p < 0.05) & target_element_id == "3_UTR", ] 
+PIGT_tests[adj_chi_p < 0.05 & target_element_id == "3_UTR",]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+# heatmap
+```{r}
+dat = rbind(
+  PCK1_tests,
+  SOS1_tests,
+  GOLGA4_tests,
+  CAPZB_tests,
+  GALT_tests,
+  HPGD_tests,
+  KRT20_tests,
+  S100A9_tests,
+  HPD_tests,
+  DPYS_tests,
+  GSTA1_tests,
+  BIN1_tests,
+  PIGT_tests
+)
+
+
+sel_group = "3_UTR"
+sub_dat = dat[target_element_id %in% sel_group, ]
+
+# sel_gene = c("MBNL", "CELF1")
+# sub_dat = sub_dat[binding_gene %in% sel_gene, ]
+# sub_dat_p = dcast(sub_dat[, .(target_gene, binding_gene, any_binding)] %>% unique(), 
+#     binding_gene ~ target_gene,
+#     value.var = "any_binding") %>%
+#   as.data.frame() %>%
+#   column_to_rownames("binding_gene") %>%
+#   as.matrix()
+# 
+# library(circlize)
+# colors = c(
+#   "yes" = "#FF4949",
+#   "no" = "#DEDEDE"
+# )
+#   
+# require(ComplexHeatmap)
+# rownames(sub_dat_p) = gsub("_", " ", rownames(sub_dat_p))
+# rownames(sub_dat_p) = gsub("3UTR", "3'UTR", rownames(sub_dat_p))
+# pdf("3UTR_analysis_01262022.pdf", height = 3)
+# Heatmap(sub_dat_p[, sort(colnames(sub_dat_p))],
+#         col = colors,
+#         name = "any binding?", 
+#         cluster_columns = F,
+#         cluster_rows = F,
+#         border = TRUE
+#   )
+# dev.off()
+
+
+# fwrite(sub_dat,
+#        file.path("..", "results", "3UTR_strength_anlysis_03302022.csv"))
+
+fwrite(sub_dat,
+       file.path("..", "results", "3UTR_strength_anlysis_08102022.csv"))
+```
+
+
+
+
+# exon
+## INSR
+nothing
+
+```{r}
+INSR_tests = seq_analysis(
+  full_f = "INSR_full.fasta",
+  seq_f = "INSR_ex10-ex12_010522.rtf",
+  gene_name = "INSR",
+  exon_idxes = 10:12, 
+  start_with_exon = T,
+  end_with_exon = T, 
+  binding_dt = binding_dt[group != "3' UTR", ],
+  base_abb = base_abb
+)
+
+INSR_tests[(chi_p < 0.05 | adj_chi_p < 0.05), ] 
+INSR_tests[adj_chi_p < 0.05,]
+```
+
+
+# summary results
+
+```{r}
+# dt = rbind(
+#   get_heatmap_dat(
+#     GOLGA4_tests[target_element_id != "3_UTR" & 
+#                !binding_gene %in% sel_gene, ],
+#     23),
+#   get_heatmap_dat(
+#     CAPZB_tests[target_element_id != "3_UTR" & 
+#                !binding_gene %in% sel_gene, ],
+#     8),
+#   get_heatmap_dat(
+#     SOS1_tests[target_element_id != "3_UTR" & 
+#                !binding_gene %in% sel_gene, ],
+#     21)
+# )
+
+
+do_heatmap = function(dt){
+  dt[, any_sig := any(chi_p < 0.05), by = .(binding_site, binding_gene, target_gene)]
+  dt = dt %>%
+    .[any_sig == TRUE, .(binding_site, binding_gene, chi_p, xsquared, target_gene, target_element_id, target_element_label)] 
+  dt[, binding_label := ifelse(chi_p < 0.05, "*", "")]
+  
+  
+  mtx = dt %>%
+    dcast(binding_site + target_gene + binding_gene ~ target_element_label, value.var = "xsquared") %>%
+    .[, rowname := paste(binding_gene, target_gene, binding_site, sep = "_")] %>%
+    .[, .(rowname, intron_before, exon, intron_after)] %>%
+    as.data.frame() %>%
+    column_to_rownames("rowname") %>%
+    .[order(rownames(.)), ] %>% as.matrix()
+  annot = data.table(rowname = rownames(mtx))
+  annot[, binding_gene := map(strsplit(rowname, "_"), ~(.x[1])) %>% unlist()]
+  annot[, target_gene := map(strsplit(rowname, "_"), ~(.x[2])) %>% unlist()]
+  annot[, binding_site := map(strsplit(rowname, "_"), ~(.x[3])) %>% unlist()]
+  annot = annot %>% column_to_rownames("rowname")
+  
+  label_mtx = dt %>%
+    dcast(binding_site + target_gene + binding_gene ~ target_element_label, value.var = "binding_label") %>%
+    .[, rowname := paste(binding_gene, target_gene, binding_site, sep = "_")] %>%
+    .[, .(rowname, intron_before, exon, intron_after)] %>%
+    as.data.frame() %>%
+    column_to_rownames("rowname") %>%
+    .[order(rownames(.)), ] %>% as.matrix() %>%
+    .[rownames(mtx), ]
+  
+  colours = list(
+  'binding_gene' = c('MBNL' = 'red2', "CELF1" = "green", 'RBFOX2' = 'royalblue')
+  )
+  rowha = rowAnnotation(binding_gene = annot[, c("binding_gene")],
+                        col = colours)
+  
+  rownames(mtx) = annot$binding_site
+  colnames(mtx) = gsub("_", " ", colnames(mtx))
+  
+  require(ComplexHeatmap)
+
+  library(circlize)
+  col_fun = colorRamp2(c(0, 50), c("yellow", "red"))
+  
+  Heatmap(mtx,
+        name = "xsquared", 
+        row_split = annot$target_gene,
+        row_title_rot = 0,
+        column_names_rot = 0, 
+        column_names_centered = T,
+        row_names_side = "left",
+        col = col_fun,
+        #right_annotation = rowha,
+        rect_gp = gpar(col = "gray", lwd = 1),
+         cell_fun = function(j, i, x, y, w, h, col) { 
+           grid.text(label_mtx[i, j], x, y)
+    },
+    cluster_columns = F,
+    cluster_rows = F,
+    border = TRUE,
+    # heatmap_legend_param = list(at = c(0, 0.05, 1), 
+    #                             # col_fun = col_fun, 
+    #                             title = "adj.pvalue", border = "black")
+  )
+}
+
+do_heatmap(dt[binding_gene == "MBNL", ])
+do_heatmap(dt[binding_gene == "CELF1", ])
+```
+
+```{r}
+# sub_dat = dt[binding_gene == "CELF1", ]
+sub_dat = dat[target_element_id %in% sel_group, ]
+sub_dat[, any_binding := ifelse(any(chi_p < 0.05), "yes", "no"), by = .(binding_gene, target_gene, binding_site)]
+
+sub_dat_p = sub_dat[, .(target_gene, binding_gene, binding_site, any_binding)]
+sub_dat_p[, binding_id := paste(binding_gene, binding_site, sep = "_")]
+sub_dat_p = dcast(sub_dat_p %>% unique(),  binding_id + binding_site + binding_gene ~ target_gene,
+    value.var = "any_binding") %>%
+  as.data.frame() %>%
+  column_to_rownames("binding_id") %>%
+  as.matrix()
+
+library(circlize)
+sub_dat_p[is.na(sub_dat_p)] = "no_match"
+colors = c(
+  "yes" = "#FF4949",
+  "no" = "#DEDEDE",
+  "no_match" = "gray"
+)
+
+  
+require(ComplexHeatmap)
+sub_dat_pbinding_gene_label = gsub("_3UTR", "", sub_dat_p$binding_gene)
+sel_cols = setdiff(colnames(sub_dat_p), c("binding_gene", "binding_site"))
+pdf("3UTR_analysis_08102022.pdf", height = 30)
+Heatmap(sub_dat_p[, sort(sel_cols)],
+        name = "any binding?", 
+        col = colors,
+        cluster_columns = F,
+        cluster_rows = F,
+        border = TRUE,
+        row_split = sub_dat_p[, "binding_gene"],
+        show_heatmap_legend = F,
+        show_row_names = F,
+        row_title_rot = 90
+  )
+dev.off()
+```
+
