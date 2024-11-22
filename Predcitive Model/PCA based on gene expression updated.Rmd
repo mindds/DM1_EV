@@ -1,0 +1,194 @@
+---
+title: "PCA based on gene expression updated"
+author: "Vamshi"
+date: "11/10/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required packages
+require(data.table)
+require(caret)
+require(MLeval)
+require(glmnet)
+require(ROCR)
+require(tidyverse)
+require(MethylIT)
+require(ComplexHeatmap)
+require(circlize)
+require(psych)
+
+
+rdir = file.path("../..", "results/PCA")
+```
+
+```{r}
+# 
+#exp = openxlsx::read.xlsx(file.path(rdir, "exRNA_ddPCR_gene_exp_for_PCA_051222.xlsx"))
+
+#setDT(exp)
+exp<-fread(file.path(rdir,"exRNA_ddPCR_gene_exp_for_PCA_051222.csv"))
+
+```
+
+gene expression was normalized to FIN1
+```{r}
+exp_p = melt(exp[, 1:9], id.vars = "ID")
+# ggplot(
+#   exp_p,
+#   aes(x = ID, y = value)
+# ) + 
+#   geom_boxplot()
+```
+
+
+```{r}
+sel_cols = c("PCK1", "HPD", "DPYS", "GSTA1", "KRT20", "HPGD", "PIGT", "BIN1")
+exp_sel = exp[1:49, sel_cols, with = F]
+
+# normalization
+# non-numeric predictors are allowed but will be ignored.
+# method = "zv" identifies numeric predictor columns with a single value 
+# (i.e. having zero variance) and excludes them from further calculations. 
+train_proc = preProcess(exp_sel, method = c("center", "scale", "zv"), verbose = TRUE)
+exp_n = predict(train_proc, exp_sel)
+```
+
+```{r}
+# feature correlation analysis
+exp_cor = cor(exp_n)
+exp_cor %>% 
+  Heatmap(
+    col = colorRamp2(c(-1, 0, 1), c("#0C6291", "#FBFEF9", "#A63446")),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.1f", exp_cor[i, j]), x, y, gp = gpar(fontsize = 10))
+})
+
+exp[, group := substr(ID, 1, 2)]
+pairs.panels(exp_n,
+             gap = 0,
+             bg = c("red", "blue")[exp$group[1:49]],
+             pch=21)
+```
+
+# Logistic regression using Principal Components from PCA as predictor variables
+1. Principal components (PCs) are estimated from the predictor variables provided as input data. 
+2. Next, the individual coordinates in the selected PCs are used as predictors in the logistic regresson.
+
+reference: https://github.com/genomaths/MethylIT
+```{r}
+# step by step
+# PCA
+set.seed(1234)
+exp_pca = predict(
+  preProcess(exp_n, method = c("center", "scale", "pca"), verbose = TRUE),
+  exp_n
+)   
+View(exp_pca)
+
+require(factoextra)
+exp_pca2 = prcomp(exp_n, scale = TRUE, center = TRUE)
+exp_var = get_pca_var(exp_pca2)
+exp_var$contrib
+
+exp_var_dt = exp_var$contrib[, 1:4] %>% as.data.frame()
+setDT(exp_var_dt)
+exp_var_dt[, gene_exp := rownames(exp_var$contrib)]
+exp_var_dt = melt(
+  exp_var_dt, id.vars = "gene_exp",
+  variable.name = "PC", value.name = "contribution"
+)
+
+require(ggthemes)
+ggplot(exp_var_dt, aes(x = PC, y = gene_exp)) +
+  geom_point(aes(fill = contribution, size = contribution),
+             colour="black",pch=21) +
+  theme_few() +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = NA) +
+  scale_size(range = c(1,10))
+
+require(cluster)
+require(ggfortify)
+group = substr(exp$ID, 1, 2)[1:49]
+ggplot(
+  data = exp_pca, 
+  aes(x = PC1, y = PC2, 
+      col = group, group = group
+)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "PC1 vs PC2")
+```
+
+
+
+```{r}
+
+fwrite(cbind(exp$ID,exp_n), file.path(rdir, "PCA_scores_on_gene_expression_8genes.csv"))
+fwrite(cbind(exp$ID,exp_pca), file.path(rdir, "PCA_gene_expression_8genes.csv"))
+
+```
+
+
+
+
+
+
+```{r}
+meta_cols = setdiff(colnames(exp), sel_cols)
+exp_pca_all = cbind(exp_pca, exp[1:49, meta_cols, with = F])
+setnames(exp_pca_all, c("6MWT", "10MTW"), c("x6MWT", "x10MTW"))
+ggplot(
+  data = exp_pca_all, 
+  aes(y = PC1, x = x6MWT, 
+      col = group, group = group
+)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "6MWT vs PC1", x = "6MWT", y = "PC1")
+
+ggplot(
+  data = exp_pca_all, 
+  aes(y = PC1, x = scale(x6MWT + 0.1), 
+      col = group, group = group
+)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "6MWT vs PC1", x = "6MWT (scaled)", y = "PC1")
+
+ggplot(
+  data = exp_pca_all, 
+  aes(y = PC1, x = x10MTW, 
+      col = group, group = group
+)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "10MTW vs PC1", x = "10MTW", y = "PC1")
+
+exp_pca_all[, group := substr(ID, 1, 2)]
+ggplot(
+  data = exp_pca_all[group == "DM", ], 
+  aes(y = scale(PC1), x = scale(x10MTW)
+)) + 
+       geom_point() + 
+       geom_smooth(method = "lm", formula = y ~ x, se = F) +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "10MTW vs PC1", x = "10MTW", y = "PC1") +
+  stat_cor(label.y = 40)+ 
+  stat_regline_equation(label.y = 45) 
+```
+

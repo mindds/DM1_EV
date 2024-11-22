@@ -1,0 +1,112 @@
+---
+title: "Blind Test"
+author: "Zhaozhi Li"
+date: "3/10/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+require(data.table)
+require(caret)
+require(MLeval)
+require(glmnet)
+require(ROCR)
+require(openxlsx)
+
+# directories
+data_dir = file.path("..", "..", "data")
+result_dir = file.path("..", "..", "results")
+p_dir = file.path(result_dir, "Plots")
+
+# load data
+data_f = file.path(data_dir, "exRNA_ddPCR_pred_mod_blinded_030322.csv")
+blindtest_r = fread(data_f)
+```
+
+# prediction using model
+```{r}
+# load model
+load("logistic_regression_using_PCA_PC1_model.Rdata")
+
+# predict
+blindtest_pca = predict(
+  preProcess(blindtest_r, method = c("center", "scale", "pca"), verbose = TRUE, pcaComp = 4),
+  blindtest_r
+)  
+blindtest_predict = predict(pca.logist.model_pc1, blindtest_pca)
+View(blindtest_pca)
+View(train_pca)
+```
+
+
+# summarize results
+```{r}
+blindtest_sum = blindtest_r[blindtest_pca, on = .(`ID - blinded`)]
+all(blindtest_sum$`ID - blinded` == blindtest_pca$`ID - blinded`)
+blindtest_sum[, predict := blindtest_predict]
+fwrite(blindtest_sum, file.path(result_dir, "Data_for_predictive_model", "exRNA_ddPCR_pred_mod_blinded_prediction.csv"))
+```
+
+
+# visualization
+## PCA
+```{r}
+require(ggthemes)
+ggplot(data = blindtest_sum, aes(x = PC1, y = PC2, col = predict)) + 
+  geom_point() + 
+  geom_text(aes(label = gsub("Blinded - ", "", `ID - blinded`)), color = "black") +
+  stat_ellipse(type = "norm") +
+  theme(legend.position='none') +
+  theme_few() +
+  labs(title = "PC1 vs PC2")
+ggsave(file.path(p_dir, "blindtest_pca.pdf"), width = 5, height = 3)
+```
+## gene expression
+```{r}
+# normalization
+# non-numeric predictors are allowed but will be ignored.
+# method = "zv" identifies numeric predictor columns with a single value 
+# (i.e. having zero variance) and excludes them from further calculations. 
+blindtest_proc = preProcess(blindtest_r, method = c("center", "scale", "zv"), verbose = TRUE)
+blindtest_n = predict(blindtest_proc, blindtest_r)
+all(blindtest_n$`ID - blinded` == blindtest_sum$`ID - blinded`)
+blindtest_n[blindtest_sum, on = .(`ID - blinded`), predict := i.predict]
+
+blindtest_p = copy(blindtest_n)
+colnames(blindtest_p) = gsub(" ", "", colnames(blindtest_p))
+gene1 = "NUMA1ex16"
+gene2 = "INCENPex11"
+ggplot(blindtest_p, aes_string(x = gene1, y = gene2, color = "predict", goup = "predict")) +
+  geom_point() +
+  geom_text(aes(label = gsub("Blinded - ", "", `ID-blinded`)), color = "black") +
+  theme_minimal()
+ggsave(file.path(p_dir, "blindtest_NUMA1ex16_vs_INCENPex11.pdf"), width = 5, height = 3)
+fwrite(blindtest_n, file.path(result_dir, "Data_for_predictive_model", "exRNA_ddPCR_pred_mod_blinded_normalized.expression.csv"))
+```
+
+## feature correlation
+```{r}
+# feature correlation analysis
+blindtest_cor = cor(blindtest_n[, c(-1, -7)])
+require(tidyverse)
+require(ComplexHeatmap)
+require(circlize)
+require(psych)
+blindtest_cor %>% 
+  Heatmap(
+    col = colorRamp2(c(-1, 0, 1), c("#0C6291", "#FBFEF9", "#A63446")),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.1f", ddPCR_cor[i, j]), x, y, gp = gpar(fontsize = 10))
+})
+
+pdf(file.path(p_dir, "blindtest_pair_correlation.pdf"),
+    height = 6)
+pairs.panels(
+  blindtest_n[, c(-1, -7)],
+  gap = 0,
+  bg = c("red", "blue")[blindtest_n$predict],
+  pch=21
+)
+dev.off()
+```
+

@@ -1,0 +1,822 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+library(data.table)
+library(caret)
+library(MLeval)
+library(glmnet)
+library(ROCR)
+```
+
+```{r}
+mci <- fread('mci.csv')
+proteins <- fread('proteins_for_ML.csv')
+Olink_submitted_full <- fread('Olink_submitted_full_for_ML.csv')
+tT1.sfE <- fread('limma-MCI-no-duplicates-annotated.csv')
+
+# Abeta and ptau data 
+
+abeta <- fread('Ab40-42 results (10.25.2021).csv')
+abeta[`AB1-40` == 'Above Highest Calibrator', `AB1-40` := 278]
+abeta[`AB1-42` == 'Below Lowest Calibrator', `AB1-42` := 8.8]
+abeta <- abeta[1:101]
+abeta[,`AB1-40` := as.numeric(`AB1-40`)]
+abeta[,`AB1-42` := as.numeric(`AB1-42`)]
+abeta[,ABeta_Ratio := `AB1-42`/`AB1-40`]
+
+ptau <- fread('olink_ptau181_report_092821.csv')
+
+biomarkers_prognosis <- tT1.sfE[tT1.sfE$P.Value < 0.05,]$Assay.1
+cols<-c("Assay", "PIDN", "category_steve",biomarkers_prognosis)
+dat<-proteins[Assay %in% mci$Plasma_Sample, .SD,.SDcols=cols]
+
+dat[Olink_submitted_full, on=.(Assay = Plasma_Sample), `:=` ( Age_at_Visit = i.Age_at_Visit,  Global_CDR =i.Global_CDR, CDR_Sum_of_Boxes = i.CDR_Sum_of_Boxes, FAQ_Total = i.FAQ_Total, MMSE = i.MMSE, Sex = i.Sex, Education =i.Education )]
+
+dat[, Sex := ifelse(Sex=="Male", 0, 1)]
+dat[, Education :=ifelse(Education=="12 Years",1,
+                  ifelse(Education=="13-15 Years",2,
+                  ifelse(Education=="16 Years",3,4)))]
+
+dat[Olink_submitted_full, on=.(PIDN), APOE4 := i.APOE4]
+dat[, APOE4 := as.numeric(APOE4)]
+dat[,Phenotype := factor(category_steve, levels=c("MCI_Stable_AD","MCI_Decline_AD"))]
+
+dat[abeta,on=.(Assay = SampleID),ABeta_Ratio := i.ABeta_Ratio]
+#mean value of ratio 
+dat[Assay == 'H0401.1',ABeta_Ratio := 0.1245184]
+
+dat[ptau,on=.(Assay = SampleID), ptau := `i.pTau181 (pg/mL)`]
+dat[Assay == 'H0401.1',ptau := 2.827273]
+
+# Join with MSD pTau
+# msd<-fread("mci_with_ptau.csv")
+# dat[msd, on=.(Assay = Plasma_Sample), ptau_high := i.ptau_high]
+
+#fwrite(dat,"mci-all-dat.csv")
+# remove vars that don't go into ML
+dat[, c("PIDN","Assay","category_steve") := NULL]
+
+
+# !!!!
+normalize = preProcess(dat, method = c("center", "scale", "zv"), verbose = TRUE)
+dat = predict(normalize, dat)
+dat[is.na(dat)] <-0.001
+n=dim(dat)[2]
+```
+
+SVM via caret 
+
+```{r}
+# set.seed(9)
+# tC = trainControl(method = "cv", number = 10, savePredictions = TRUE, classProbs = TRUE, verboseIter = TRUE)
+# 
+# modelSVM = train(Phenotype ~ ., dat, method = "svmLinear2", trControl = tC)
+# confusionMatrix(modelSVM)
+# res<-evalm(modelSVM)
+# res
+# save(modelSVM, file=paste0("modelSVM_",Sys.Date(),".Rdata"))
+# plot(varImp(modelSVM), main = "Variable Importance", cex.lab = 0.1, n.var=10)
+
+
+```
+
+
+
+Lasso via glment 
+
+```{r}
+# set.seed(5281995)
+# f <- as.formula(Phenotype ~ .)
+# 
+# # split, 80 percent train/CV and 20 percent test
+# train.index <- createDataPartition(dat$Phenotype, p = .8, list = FALSE)
+# train_data <- dat[ train.index,]
+# test_data  <- dat[-train.index,]
+# 
+# train_x <- model.matrix(f, train_data)
+# train_y <- as.factor(ifelse(as.matrix(train_data[,52]) == 'MCI_Decline_AD',1,0))
+# 
+# # not enough data for auc, uses deviance
+# mci_glmnet <- cv.glmnet(x = train_x, y = train_y,family = "binomial",type.measure = "auc", nfolds = 5)
+# 
+# plot(mci_glmnet)
+# exp(coef(mci_glmnet,s='lambda.min'))
+# 
+# saveRDS(mci_glmnet, file= 'glmnet_44_proteins.rds')
+# 
+# 
+# test_x <- model.matrix(f, test_data)
+# test_y <- as.factor(ifelse(as.matrix(test_data[,52]) == 'MCI_Decline_AD',1,0))
+# 
+# results <- data.table(Prediction = predict(mci_glmnet, newx = test_x, s = "lambda.min", type = "class")[,1],Target = test_y)
+# 
+# results[,Correct := ifelse(Prediction == Target,1,0)]
+# results[,Predicted_Prob := predict(mci_glmnet, newx = test_x, s = "lambda.min", type = "response")[,1]]
+# results[,sum(Correct)]
+# 
+# 
+# AUC <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'auc')
+# AUC@y.values
+# 
+# perf <- performance(prediction(results$Predicted_Prob,results$Target), measure = "tpr", x.measure = "fpr")
+# plot(perf,colorize = T)
+# lines(x = c(0,100), y = c(0,100))
+
+```
+Glmnet, but put all data into model matrix 
+
+```{r}
+set.seed(5281995)
+f <- as.formula(Phenotype ~ .)
+
+x <- model.matrix(f, dat)
+y <- as.factor(ifelse(as.matrix(dat[,52]) == 'MCI_Decline_AD',1,0))
+# x = x[, -1] # why do we have two intercepts?
+
+# not enough data for auc, uses deviance
+mci_glmnet <- cv.glmnet(x = x, y = y,family = "binomial",type.measure = "auc", nfolds = 5, keep=T)
+
+
+#saveRDS(mci_glmnet,file = 'full_model_abeta_plasma_glmnet_v2.rds')
+#saveRDS(x,file = 'full_model_abeta_plasma_x_matrix_v2.rds')
+
+
+plot(mci_glmnet)
+exp(coef(mci_glmnet,s='lambda.min'))
+
+#saveRDS(mci_glmnet, file= 'glmnet_44_proteins.rds')
+
+
+idmin = match(mci_glmnet$lambda.min, mci_glmnet$lambda)
+plot(roc.glmnet(mci_glmnet$fit.preval, newy = y)[[idmin]])
+roc_output <- roc.glmnet(mci_glmnet$fit.preval, newy = y)[[idmin]]
+setDT(roc_output)
+roc_output[,TP := TPR * 30]
+roc_output[,TN := (1 - FPR) * 30]
+roc_output[,ACC := (TP + TN) / 60]
+roc_output[,PPV := TP/30]
+roc_output[,NPV := TN /30]
+
+# this is full model output 
+fwrite(roc_output,file='ROC_coordinates_full_model_with_ptau_abeta_idmin_29.csv')
+
+
+# ugly, SD/AN to update 
+# ROC_plot <- ggplot(roc_output, aes(x=FPR, y=TPR)) +
+#   geom_point() + 
+#   geom_abline(intercept = 0, slope = 1) + 
+#   ggtitle('ROC Plot MCI GLMnet Including Biomarkers') + 
+#   geom_text(aes(label=ifelse(FPR == 0 & TPR == 0.7,'FPR == .7','')),hjust = , vjust= )
+# ROC_plot
+
+# results <- data.table(Prediction = predict(mci_glmnet, newx = x, s = "lambda.min", type = "class")[,1],Target = y)
+# results[,Correct := ifelse(Prediction == Target,1,0)]
+# results[,Predicted_Prob := predict(mci_glmnet, newx = x, s = "lambda.min", type = "response")[,1]]
+# results[,sum(Correct)]
+# 
+# cm = confusionMatrix(results$Prediction,results$Target)
+
+
+#AUC <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'auc')
+#AUC@y.values
+
+# auc<-ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'tpr','fpr')
+# plot(auc)
+
+# perf <- performance(prediction(results$Predicted_Prob,results$Target), measure = "tpr", x.measure = "fpr")
+# plot(perf,colorize = T)
+# lines(x = c(0,100), y = c(0,100))
+
+# lamdba investigation 
+
+
+lambda_mci_glmnet <- data.table(lambda = mci_glmnet$lambda, 
+                                cv_mean = mci_glmnet$cvm,
+                                cv_sd = mci_glmnet$cvsd,
+                                cv_lo = mci_glmnet$cvlo,
+                                cv_up = mci_glmnet$cvup)
+
+View(lambda_mci_glmnet[lambda == mci_glmnet$lambda.min])
+
+fwrite(lambda_mci_glmnet,file='lambda_sequence_mci_glmnet_full_model_with_ptau_abeta_idmin_29.csv')
+mci_glmnet_coef <- data.table(var = names(coef(mci_glmnet,s='lambda.min')[,1]),coef = exp(coef(mci_glmnet,s='lambda.min')[,1]))
+
+#fwrite(mci_glmnet_coef,file='coef_mci_glmnet_full_model_with_abeta_ptau_v2.csv')
+```
+
+
+Baseline model plus abeta/ptau 
+
+```{r}
+# need to remove plasma biomarkers 
+set.seed(5281995)
+f <- as.formula(Phenotype ~ .)
+
+cols <- c("Age_at_Visit","CDR_Sum_of_Boxes","FAQ_Total","MMSE","Sex","Education","APOE4","Phenotype","ABeta_Ratio","ptau")
+
+dat_baseline_abeta_ptau <- dat[,..cols]
+
+x <- model.matrix(f, dat_baseline_abeta_ptau)
+y <- as.factor(ifelse(as.matrix(dat_baseline_abeta_ptau[,8]) == 'MCI_Decline_AD',1,0))
+
+mci_glmnet <- cv.glmnet(x = x, y = y,family = "binomial",type.measure = "auc", nfolds = 5, keep=T)
+
+plot(mci_glmnet)
+exp(coef(mci_glmnet,s='lambda.min'))
+
+saveRDS(mci_glmnet, file= 'glmnet_baseline_plus_abeta_ptau.rds')
+
+
+idmin = match(mci_glmnet$lambda.min, mci_glmnet$lambda)
+plot(roc.glmnet(mci_glmnet$fit.preval, newy = y)[[idmin]])
+roc_output <- roc.glmnet(mci_glmnet$fit.preval, newy = y)[[idmin]]
+setDT(roc_output)
+roc_output[,TP := TPR * 30]
+roc_output[,TN := (1 - FPR) * 30]
+roc_output[,ACC := (TP + TN) / 60]
+roc_output[,PPV := TP/30]
+roc_output[,NPV := TN /30]
+
+# this is full model output 
+fwrite(roc_output,file='ROC_coordinates_baseline_with_ptau_abeta_idmin_CGM.csv')
+
+lambda_mci_glmnet <- data.table(lambda = mci_glmnet$lambda, 
+                                cv_mean = mci_glmnet$cvm,
+                                cv_sd = mci_glmnet$cvsd,
+                                cv_lo = mci_glmnet$cvlo,
+                                cv_up = mci_glmnet$cvup)
+
+View(lambda_mci_glmnet[lambda == mci_glmnet$lambda.min])
+
+fwrite(lambda_mci_glmnet,file='lambda_sequence_mci_glmnet_baseline_with_ptau_abeta_idmin_CGM.csv')
+
+```
+
+
+rerun glmnet on baseline model (no proteins)
+
+```{r}
+set.seed(12345)
+f <- as.formula(Phenotype ~ .)
+
+baseline_dat <- dat[,45:ncol(dat)]
+
+x <- model.matrix(f, baseline_dat)
+y <- as.factor(ifelse(as.matrix(baseline_dat[,8]) == 'MCI_Decline_AD',1,0))
+
+
+mci_baseline_glmnet <- cv.glmnet(x = x, y = y,family = "binomial",type.measure = "auc", nfolds = 5,keep = T)
+
+plot(mci_baseline_glmnet)
+exp(coef(mci_baseline_glmnet,s='lambda.min'))
+
+idmin_baseline = match(mci_baseline_glmnet$lambda.min, mci_baseline_glmnet$lambda)
+roc_baseline_output <- roc.glmnet(mci_baseline_glmnet$fit.preval, newy = y)[[idmin_baseline]]
+setDT(roc_baseline_output)
+roc_baseline_output[,TP := TPR * 30]
+roc_baseline_output[,TN := (1 - FPR) * 30]
+roc_baseline_output[,ACC := (TP + TN) / 60]
+roc_baseline_output[,PPV := TP/30]
+roc_baseline_output[,NPV := TN /30]
+
+fwrite(roc_baseline_output,file='ROC_coordinates_baseline_model.csv')
+
+#saveRDS(mci_glmnet, file= 'glmnet_44_proteins.rds')
+
+# results <- data.table(Prediction = predict(mci_baseline_glmnet, newx = x, s = "lambda.min", type = "class")[,1],Target = y)
+# 
+# results[,Correct := ifelse(Prediction == Target,1,0)]
+# results[,Predicted_Prob := predict(mci_baseline_glmnet, newx = x, s = "lambda.min", type = "response")[,1]]
+# results[,sum(Correct)]
+# 
+# 
+# AUC <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'auc')
+# AUC@y.values
+# 
+# perf <- performance(prediction(results$Predicted_Prob,results$Target), measure = "tpr", x.measure = "fpr")
+# plot(perf,colorize = T)
+# lines(x = c(0,100), y = c(0,100))
+
+# lamdba investigation 
+
+
+lambda_mci_baseline_glmnet <- data.table(lambda = mci_baseline_glmnet$lambda, 
+                                cv_mean = mci_baseline_glmnet$cvm,
+                                cv_sd = mci_baseline_glmnet$cvsd,
+                                cv_lo = mci_baseline_glmnet$cvlo,
+                                cv_up = mci_baseline_glmnet$cvup)
+
+View(lambda_mci_baseline_glmnet[lambda == mci_baseline_glmnet$lambda.min])
+
+
+fwrite(lambda_mci_baseline_glmnet,file='lambda_sequence_mci_baseline_glmnet.csv')
+mci_baseline_glmnet_coef <- data.table(var = names(coef(mci_baseline_glmnet,s='lambda.min')[,1]),coef = exp(coef(mci_baseline_glmnet,s='lambda.min')[,1]))
+
+fwrite(mci_baseline_glmnet_coef,file='coef_mci_baseline_glmnet.csv')
+```
+
+
+
+# eval on the test/replication set 
+
+
+
+```{r}
+# make test protein data matrix, need to add in ptau/abeta
+
+proteins_test<-read.csv("Olink_SVM_Test.csv", header=T,stringsAsFactors = F)
+setDT(proteins_test)
+proteins_test[,2:369] <- map_dfc(proteins_test[,2:369],~as.double(.x))
+
+final_samples <- fread('2020-06-25-Blood-Visits-Scans.csv')
+
+proteins_test <- merge(proteins_test,final_samples[,.(DrawID,FAQ_Total,MMSE,CDR_Sum_of_Boxes)],by.x = "Assay",by.y = "DrawID",all.x = T)
+
+outcomes <- fread('Final sample selection_MCI validation cohort.csv')
+
+proteins_test[outcomes,on=.(Assay = Assay.1),Phenotype := i.Cog_Status]
+#View(proteins_test[,..biomarkers_prognosis])
+
+
+outcomes[,'Age_at_Visit' := `Age at blood draw`]
+outcomes[,Sex := V7]
+outcomes[, Sex := ifelse(Sex=="M", 0, 1)]
+outcomes[,MMSE := as.numeric(MMSE)]
+outcomes[APOE %in% c("e3/e4", "e4/e2", "e4/e4"), APOE4 := 1]
+outcomes[APOE %in% c("e3/e3", "e3/e2","e2/e2"), APOE4 := 0]
+outcomes[, Education :=ifelse(Education=="12 Years",1,
+                  ifelse(Education=="13-15 Years",2,
+                  ifelse(Education=="16 Years",3,4)))]
+
+proteins_test[outcomes,on=.(Assay = Assay.1),`:=` 
+              (Age_at_Visit = i.Age_at_Visit,
+                CDR_Sum_of_Boxes = i.CDR_Sum_of_Boxes,
+                MMSE = i.MMSE,
+                Sex = i.Sex,
+                Education = i.Education,
+                APOE4 = i.APOE4)]
+#fwrite(proteins_test,"proteins_validation_set.csv")
+# filter for only proteins of interest 
+test_model_matrix <- proteins_test[,.SD,.SDcols =   c(biomarkers_prognosis,'Age_at_Visit',
+'CDR_Sum_of_Boxes','FAQ_Total',                                               'MMSE','Sex','Education','APOE4','Phenotype')]
+
+
+setcolorder(test_model_matrix,colnames(dat))
+
+# QC this, need to remove NAs
+test_model_matrix <- test_model_matrix[!is.na(Age_at_Visit)]
+
+# normalize, apply training preprocessing??????? 
+test_model_matrix <- predict(normalize, test_model_matrix)
+
+
+set.seed(5281995)
+f <- as.formula(Phenotype ~ .)
+
+# model 1 
+x <- model.matrix(f, test_model_matrix)
+y <- as.factor(ifelse(as.matrix(test_model_matrix[,52]) == 'MCI Decline',1,0))
+
+#mci_glmnet <- load()
+
+results <- data.table(Prediction = predict(mci_glmnet, newx = x, s = "lambda.min", type = "class")[,1],Target = y)
+
+results[,Correct := ifelse(Prediction == Target,1,0)]
+results[,Predicted_Prob := predict(mci_glmnet, newx = x, s = "lambda.min", type = "response")[,1]]
+results[,sum(Correct)]
+
+# results from model 1 
+AUC <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'auc')
+AUC@y.values
+
+# [[1]]
+# [1] 0.675737
+
+
+perf <- performance(prediction(results$Predicted_Prob,results$Target), measure = "tpr", x.measure = "fpr")
+plot(perf,colorize = T)
+lines(x = c(0,100), y = c(0,100))
+
+fwrite(results,file='test_replication_set_results.csv')
+
+
+acc <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'acc')
+acc@y.values[[1]][max_acc_idx]
+
+max_acc_idx <- which.max(acc@y.values[[1]]) # 28 
+
+sens <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'sens')
+sens@y.values[[1]][max_acc_idx]  # 0.8571429
+
+spec <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'spec')
+spec@y.values[[1]][max_acc_idx] # 0.5714286
+
+fpr <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'fpr')
+fpr@y.values[[1]][max_acc_idx]  # 0.4285714
+
+tpr <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'tpr')
+tpr@y.values[[1]][max_acc_idx] # 0.8571429
+
+tnr <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'tnr')
+tnr@y.values[[1]][max_acc_idx] # 0.8571429
+
+replication_set_metrics <- data.table(AUC = AUC@y.values,
+                                      ACC = acc@y.values[[1]][max_acc_idx],
+                                      SENS = sens@y.values[[1]][max_acc_idx],
+                                      SPEC = spec@y.values[[1]][max_acc_idx],
+                                      FPR = fpr@y.values[[1]][max_acc_idx],
+                                      TPR = tpr@y.values[[1]][max_acc_idx],
+                                      TNR = tnr@y.values[[1]][max_acc_idx]
+                                     )
+
+replication_set_metrics[, FP := FPR * 21]
+replication_set_metrics[, TP := TPR * 21]
+replication_set_metrics[, TN := TNR * 21]
+replication_set_metrics[, FN := 21 - TP]
+
+```
+
+Replicate Table 1 on validation (replication) cohort
+
+```{r}
+# N, mean age, sd age, percent female by category 
+
+table_1 <- proteins_test[3:nrow(proteins_test),][,.(N = .N, Age_Mean = mean(Age_at_Visit), Age_SD = sd(Age_at_Visit),Percent_Female = sum(Sex)/.N),by=.(Phenotype)]
+```
+
+
+
+Eval on test set with full model (plasma biomarkers + ptau and abeta + baseline). CAUTION: ENSURE THAT YOU EITHER EXPLICITLY LOAD IN CORRECT GLMNET MODEL (ONE WITH ALL DATA) BEFORE RUNNING THIS SECTION OR THAT MOST RECENT mci_glmnet THAT YOU CREATED WAS THE 'FULL' VERSION WITH ALL VARIABLES. 
+
+```{r}
+# make test protein data matrix, need to add in ptau/abeta
+
+proteins_test<-read.csv("Olink_SVM_Test.csv", header=T,stringsAsFactors = F)
+setDT(proteins_test)
+proteins_test[,2:369] <- map_dfc(proteins_test[,2:369],~as.double(.x))
+
+final_samples <- fread('2020-06-25-Blood-Visits-Scans.csv')
+
+proteins_test <- merge(proteins_test,final_samples[,.(DrawID,FAQ_Total,MMSE,CDR_Sum_of_Boxes)],by.x = "Assay",by.y = "DrawID",all.x = T)
+
+outcomes <- fread('Final sample selection_MCI validation cohort.csv')
+
+proteins_test[outcomes,on=.(Assay = Assay.1),Phenotype := i.Cog_Status]
+#View(proteins_test[,..biomarkers_prognosis])
+
+
+outcomes[,'Age_at_Visit' := `Age at blood draw`]
+outcomes[,Sex := V7]
+outcomes[, Sex := ifelse(Sex=="M", 0, 1)]
+outcomes[,MMSE := as.numeric(MMSE)]
+outcomes[APOE %in% c("e3/e4", "e4/e2", "e4/e4"), APOE4 := 1]
+outcomes[APOE %in% c("e3/e3", "e3/e2","e2/e2"), APOE4 := 0]
+outcomes[, Education :=ifelse(Education=="12 Years",1,
+                  ifelse(Education=="13-15 Years",2,
+                  ifelse(Education=="16 Years",3,4)))]
+
+proteins_test[outcomes,on=.(Assay = Assay.1),`:=` 
+              (Age_at_Visit = i.Age_at_Visit,
+                CDR_Sum_of_Boxes = i.CDR_Sum_of_Boxes,
+                MMSE = i.MMSE,
+                Sex = i.Sex,
+                Education = i.Education,
+                APOE4 = i.APOE4)]
+
+proteins_test[abeta,on=.(Assay = SampleID),ABeta_Ratio := i.ABeta_Ratio]
+proteins_test[ptau,on=.(Assay = SampleID),ptau := `i.pTau181 (pg/mL)`]
+
+
+#fwrite(proteins_test,"proteins_validation_set.csv")
+# filter for only proteins of interest 
+test_model_matrix <- proteins_test[,.SD,.SDcols =   c(biomarkers_prognosis,'Age_at_Visit',
+'CDR_Sum_of_Boxes','FAQ_Total',                                               'MMSE','Sex','Education','APOE4','Phenotype','ABeta_Ratio','ptau')]
+
+setcolorder(test_model_matrix,colnames(dat))
+
+# QC this, need to remove NAs
+test_model_matrix <- test_model_matrix[!is.na(Age_at_Visit)]
+
+#fwrite(test_model_matrix,file = 'test_set_all_data.csv')
+
+# normalize, apply training preprocessing??????? 
+test_model_matrix <- predict(normalize, test_model_matrix)
+
+
+set.seed(5281995)
+f <- as.formula(Phenotype ~ .)
+
+# model 1 
+x <- model.matrix(f, test_model_matrix)
+y <- as.factor(ifelse(as.matrix(test_model_matrix[,52]) == 'MCI Decline',1,0))
+
+#mci_glmnet <- load()
+
+results <- data.table(Prediction = predict(mci_glmnet, newx = x, s = "lambda.min", type = "class")[,1],Target = y)
+
+
+results[,Correct := ifelse(Prediction == Target,1,0)]
+results[,Predicted_Prob := predict(mci_glmnet, newx = x, s = "lambda.min", type = "response")[,1]]
+results[,sum(Correct)]
+
+# results from model 1 
+AUC <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'auc')
+AUC@y.values
+
+# [[1]]
+# [1] 0.689
+
+
+perf <- performance(prediction(results$Predicted_Prob,results$Target), measure = "tpr", x.measure = "fpr")
+plot(perf,colorize = T)
+lines(x = c(0,100), y = c(0,100))
+
+fwrite(results,file='test_replication_set_results.csv')
+
+
+acc <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'acc')
+acc@y.values[[1]][which.max(acc@y.values[[1]])]
+
+max_acc_idx <- which.max(acc@y.values[[1]]) # 28 
+
+sens <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'sens')
+sens@y.values[[1]][max_acc_idx]  # 0.8571429
+
+spec <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'spec')
+spec@y.values[[1]][max_acc_idx] # 0.5714286
+
+fpr <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'fpr')
+fpr@y.values[[1]][max_acc_idx]  # 0.4285714
+
+tpr <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'tpr')
+tpr@y.values[[1]][max_acc_idx] # 0.8571429
+
+tnr <- ROCR::performance(prediction(results$Predicted_Prob,results$Target),measure = 'tnr')
+tnr@y.values[[1]][max_acc_idx] # 0.8571429
+
+replication_set_metrics <- data.table(AUC = AUC@y.values,
+                                      ACC = acc@y.values[[1]][max_acc_idx],
+                                      SENS = sens@y.values[[1]][max_acc_idx],
+                                      SPEC = spec@y.values[[1]][max_acc_idx],
+                                      FPR = fpr@y.values[[1]][max_acc_idx],
+                                      TPR = tpr@y.values[[1]][max_acc_idx],
+                                      TNR = tnr@y.values[[1]][max_acc_idx]
+                                     )
+
+fwrite(replication_set_metrics,file='replication_set_metrics_full_model_CGM.csv')
+
+replication_set_metrics[, FP := FPR * 21]
+replication_set_metrics[, TP := TPR * 21]
+replication_set_metrics[, TN := TNR * 21]
+replication_set_metrics[, FN := 21 - TP]
+
+```
+
+
+get beta*val for all patients model 3 (full)
+
+```{r}
+mci_glmnet <- readRDS('full_model_abeta_plasma_glmnet.rds')
+x <- readRDS('full_model_abeta_plasma_x_matrix.rds')
+
+exp(coef(mci_glmnet,s='lambda.min'))
+
+# need to drop second beta since it's a redundant intercept 
+scores <- x %*% diag(as.numeric(coef(mci_glmnet,s='lambda.min'))[-2])
+scores <- as.data.table(as.data.frame(scores))
+
+# fix names, drop column 52=Phenotype
+new_names <- c('Intercept',colnames(dat)[c(1:51,53:54)])
+setnames(scores,new_names)
+
+# add phenotype back
+# can safely assume dat and vdata are in the same order:
+# sum(dat$Phenotype == vdata$Phenotype)
+vdata <-fread("mci-all-dat.csv")
+vdata[, pTau_Q := ifelse(ptau > 2.6, "T+", "T-")]
+vdata[ , pTau_Q :=as.factor(pTau_Q)]
+vdata[, .N, by=.(Phenotype, pTau_Q)]
+
+scores <- cbind(scores, vdata[, .(Phenotype, raw_ptau = ptau, pTau_Q)])
+# setnames(scores,'V2','Phenotype')
+#names(scores)[57] = "raw_ptau"
+
+#fwrite(scores,file = 'score_input_data_v2.csv')
+
+```
+
+parallel coordinates plot
+https://www.data-to-viz.com/caveat/spider.html
+
+```{r}
+
+# load library
+library(GGally)
+library(viridis)
+library(patchwork)
+library(hrbrthemes)
+library(fmsb)
+# library(colormap)
+
+# read data again
+scores = fread("score_input_data_v2.csv")
+pc_cols = c("IL8.1", "TIMP4", "MMP7", "TGF.alpha", "ST2", "NEFL")
+which(colnames(scores) %in% pc_cols)
+
+# check wrong scores
+# sum(scores[1, .SD, .SDcols = names(scores)[2:45]] == 0)
+# length(2:45)
+# 44-37
+
+# coerce to factor
+scores[, pTau_Q := factor(pTau_Q, levels = c("T-", "T+"))]
+
+scores[, Phenotype := factor(Phenotype, levels = c("MCI_Stable_AD", "MCI_Decline_AD"), labels = c("Stable", "Progressors"))]
+
+# merge with ptau data
+
+# create parallel coordinate plot
+scores %>% .[raw_ptau <= 2.6] %>% as.data.frame() %>%
+  ggparcoord(
+    columns = pc_cols, groupColumn = "Phenotype", order = "anyClass",
+    showPoints = TRUE,
+    alphaLines = 0.3
+    ) + 
+  labs(y = "Value") +
+  theme_bw() +
+  theme(axis.text.x = element_text(face="bold", color = "black", size = 12),
+        axis.title.y = element_text(face="bold", size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom")
+
+## High pTau
+scores %>% .[raw_ptau > 2.6] %>% as.data.frame() %>%
+  ggparcoord(
+    columns = pc_cols, groupColumn = "Phenotype", order = "anyClass",
+    showPoints = TRUE,
+    alphaLines = 0.3
+    ) + 
+  labs(y = "Value") +
+  theme_bw() +
+  theme(axis.text.x = element_text(face="bold", color = "black", size = 12),
+        axis.title.y = element_text(face="bold", size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom")
+
+
+# progressors
+
+scores[Phenotype == "Progressors"] %>% as.data.frame() %>%
+  ggparcoord(
+    columns = pc_cols, groupColumn = "pTau_Q", order = "anyClass",
+    showPoints = TRUE,
+    alphaLines = 0.3
+    ) + 
+  labs(y = "Value") +
+  theme_bw() +
+  theme(axis.text.x = element_text(face="bold", color = "black", size = 12),
+        axis.title.y = element_text(face="bold", size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom")
+
+
+
+# BTH's hypothesis: for the low ptau people, their decline can be explained by the Olink biomarkers? so perhaps if tau is down then IL8 (for example) is up? etc.
+# SO, for the people who are negative, do progressors have higher Olink markers compared to stable?
+scores %>% as.data.frame() %>%
+  ggparcoord(
+    columns = pc_cols, groupColumn = "Phenotype", order = "anyClass",
+    showPoints = TRUE,
+    alphaLines = 0.3
+    ) + 
+  labs(y = "Value") +
+  theme_bw() +
+  theme(axis.text.x = element_text(face="bold", color = "black", size = 12),
+        axis.title.y = element_text(face="bold", size = 12),
+        axis.title.x = element_blank(),
+        legend.title = element_text(face = "bold", size = 12),
+        legend.position = "bottom")
+
+
+```
+
+ggplots BTH ptau analysis
+
+```{r}
+library(tidyverse)
+library(hrbrthemes)
+library(viridis)
+library(ggpubr)
+
+vdata <-fread("mci-all-dat.csv")
+
+vdata[, pTau_Q := ifelse(ptau > 2.6, "T+", "T-")]
+vdata[ , pTau_Q :=as.factor(pTau_Q)]
+
+vdata %>%
+  ggplot( aes(x=pTau_Q, y=IL8.1, fill=Phenotype)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    geom_jitter(color="black", size=1, alpha=0.9) +
+    theme_ipsum() +
+    theme(
+      legend.position="right",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("IL8-1") +
+    xlab("") +
+  stat_compare_means(aes(group = Phenotype), label = "p.format")
+
+
+# do this on discovery/test set 
+test_model_matrix <- fread('test_set_all_data.csv')
+test_model_matrix[, pTau_Q := ifelse(ptau > 2.6, "T+", "T-")]
+test_model_matrix[ , pTau_Q :=as.factor(pTau_Q)]
+
+test_model_matrix %>%
+  ggplot( aes(x=pTau_Q, y=IL8.1, fill=Phenotype)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    geom_jitter(color="black", size=1, alpha=0.9) +
+    theme_ipsum() +
+    theme(
+      legend.position="right",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("IL8-1") +
+    xlab("") +
+  stat_compare_means(aes(group = Phenotype), label = "p.format")
+
+
+# MMP7 discovery 
+vdata %>%
+  ggplot( aes(x=pTau_Q, y=MMP7, fill=Phenotype)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    geom_jitter(color="black", size=1, alpha=0.9) +
+    theme_ipsum() +
+    theme(
+      legend.position="right",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("MMP7") +
+    xlab("") +
+  stat_compare_means(aes(group = Phenotype), label = "p.format")
+
+# test set MMP7
+test_model_matrix %>%
+  ggplot( aes(x=pTau_Q, y=MMP7, fill=Phenotype)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    geom_jitter(color="black", size=1, alpha=0.9) +
+    theme_ipsum() +
+    theme(
+      legend.position="right",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("MMP7") +
+    xlab("") +
+  stat_compare_means(aes(group = Phenotype), label = "p.format")
+
+
+# St2 discovery 
+vdata %>%
+  ggplot( aes(x=pTau_Q, y=ST2, fill=Phenotype)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    geom_jitter(color="black", size=1, alpha=0.9) +
+    theme_ipsum() +
+    theme(
+      legend.position="right",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("ST2") +
+    xlab("") +
+  stat_compare_means(aes(group = Phenotype), label = "p.format")
+
+# test set ST2
+test_model_matrix %>%
+  ggplot( aes(x=pTau_Q, y=ST2, fill=Phenotype)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    geom_jitter(color="black", size=1, alpha=0.9) +
+    theme_ipsum() +
+    theme(
+      legend.position="right",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("ST2") +
+    xlab("") +
+  stat_compare_means(aes(group = Phenotype), label = "p.format")
+
+
+```

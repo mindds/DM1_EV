@@ -1,0 +1,385 @@
+---
+title: "PCA_on_new_genes"
+author: "Sudeshna"
+date: "12/05/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required packages
+require(data.table)
+require(caret)
+require(MLeval)
+require(glmnet)
+require(ROCR)
+require(tidyverse)
+require(MethylIT)
+require(ComplexHeatmap)
+require(circlize)
+require(psych)
+
+# directories
+#data_dir = file.path("..", "..", "data")
+rdir = file.path("..", "..", "results", "PCA")
+p_dir = file.path(rdir, "Plots")
+
+# load data
+ddPCR_r1<-fread(file.path(rdir,"exRNA_ddPCR_gene_exp_for_PCA_051222.csv"))
+
+```
+
+
+
+# Preprocessing
+```{r}
+# create prediction label
+ddPCR_r1[, group := map(strsplit(ID, "-"), ~.x[1]) %>% unlist()]
+ddPCR_r1[, group := factor(group, levels = c("UA", "DM1"))]
+ddPCR_r1[, .N, by=.(group)]
+sel_cols = c("ID", "PCK1", "HPD", "DPYS", "GSTA1", "KRT20", "HPGD", "PIGT", "BIN1", "group")
+exp = ddPCR_r1[1:49, sel_cols, with = F]
+```
+
+Jan 26, 2023
+Added new test set: Data_for_predictive_model/exRNA_ddPCR_gene_exp_pred_model_011823.xlsx
+
+```{r}
+
+# splite data into training and testing by 75:25
+set.seed(123)
+train_idex = createDataPartition(exp$group, p = .75, list = FALSE)
+train = exp[train_idex, ]
+test = exp[-train_idex, ]
+fwrite(test, "test-12-donors.csv")
+
+test<-fread(file.path("..","..","results","Data_for_predictive_model","test-34-donors.csv"))
+test[, group := factor(group, levels = c("UA", "DM1"))]
+```
+
+```{r}
+# normalization
+# non-numeric predictors are allowed but will be ignored.
+# method = "zv" identifies numeric predictor columns with a single value 
+# (i.e. having zero variance) and excludes them from further calculations. 
+train_proc = preProcess(train, method = c("center", "scale", "zv"), verbose = TRUE)
+train_n = predict(train_proc, train)
+head(train_n)
+
+# Define training control
+set.seed(123)
+train.control = trainControl(method = "repeatedcv", 
+                             number = 5, repeats = 10,
+                             savePredictions = T,
+                             classProbs = T)
+
+```
+
+Model with 8 genes
+```{r}
+pca.logist.model = train(group ~ PCK1 + HPD + DPYS + GSTA1 + PIGT + BIN1 + HPGD + KRT20, 
+                         data = train_n, 
+                         method = "glm",
+                         trControl = train.control,
+                         family = binomial())
+
+print(pca.logist.model)
+
+require(pROC)
+p = plot.roc(pca.logist.model$pred$obs,
+         pca.logist.model$pred$DM1)
+
+plot(varImp(pca.logist.model), main="Variable Importance")
+ruc_dt = data.table(
+  false_positive_rate = 1 - p$specificities,
+  true_positive_rate = p$sensitivities
+ 
+)
+ggplot(ruc_dt, aes(x = false_positive_rate, y = true_positive_rate)) +
+  geom_point()
+ruc_dt<-ruc_dt[order(false_positive_rate, true_positive_rate),]
+
+fwrite(ruc_dt, file = file.path("..", "..", "results", "PCA", "train_ROC_8_genes_wo_PC.csv"))
+
+
+# test data
+test_pca = predict(
+  preProcess(test, method = c("center", "scale", "zv"), verbose = TRUE),
+  test
+)     
+test_predict = predict(pca.logist.model, test_pca)
+
+## confusionMatrix
+confusionMatrix(reference = test$group, data = test_predict, 
+                mode='everything', positive='DM1')
+
+
+```
+
+
+# Exploration
+```{r}
+# feature correlation analysis
+train_cor = cor(train_n[, c(-1, -10)])
+train_cor %>% 
+  Heatmap(
+    col = colorRamp2(c(-1, 0, 1), c("#0C6291", "#FBFEF9", "#A63446")),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.1f", train_cor[i, j]), x, y, gp = gpar(fontsize = 10))
+})
+
+pairs.panels(train_n[, c(-1, -6)],
+             gap = 0,
+             bg = c("red", "blue")[train_n$group],
+             pch=21)
+
+
+# 
+# require(AppliedPredictiveModeling)
+# require(lattice)
+# transparentTheme(trans = .4)
+# caret::featurePlot(x = ddPCR_n[, 2:6], 
+#             y = ddPCR_n$group,
+#             plot = "pairs")
+```
+
+
+
+# Logistic regression using Principal Components from PCA as predictor variables
+1. Principal components (PCs) are estimated from the predictor variables provided as input data. 
+2. Next, the individual coordinates in the selected PCs are used as predictors in the logistic regresson.
+
+reference: https://github.com/genomaths/MethylIT
+```{r}
+# step by step
+# PCA
+set.seed(1234)
+train_pca1 = predict(
+  preProcess(train, method = c("center", "scale", "pca"), verbose = TRUE),
+  train
+)   
+View(train_pca1)
+
+```
+
+```{r}
+
+require(factoextra)
+train_pca2 = prcomp(train[, c(-1, -10)], scale = TRUE, center = TRUE)
+train_var = get_pca_var(train_pca2)
+#view(train_var)
+train_var$contrib
+#view(train_var$contrib)
+
+```
+
+```{r}
+
+train_var_dt = train_var$contrib[, 1:4] %>% as.data.frame()
+head(train_var_dt)
+setDT(train_var_dt)
+
+```
+
+```{r}
+train_var_dt[, gene_exp := rownames(train_var$contrib)]
+train_var_dt = melt(train_var_dt, id.vars = "gene_exp", 
+                    variable.name = "PC", value.name = "contribution")
+train_var_dt
+```
+
+```{r}
+require(ggthemes)
+ggplot(train_var_dt, aes(x = PC, y = gene_exp)) +
+  geom_point(aes(fill = contribution, size = contribution),
+             colour="black",pch=21) +
+  theme_few() +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = NA) +
+  scale_size(range = c(1,10))
+
+```
+
+```{r}
+
+require(cluster)
+require(ggfortify)
+ggplot(data = train_pca1, aes(x = PC1, y = PC2, col = group, group = group)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "PC1 vs PC2")
+```
+
+```{r}
+fwrite(train_pca1, file.path("..", "..", "results", "PCA", "train_pca_8_genes.csv"))
+```
+
+```{r}
+# ggplot(data = train_pca, aes(x = PC3, y = PC4, col = group, group = group)) + 
+#        geom_point() + 
+#        stat_ellipse(type = "norm") +
+#        theme(legend.position='none') +
+#        theme_minimal() +
+#   labs(title = "PC3 vs PC4")
+```
+
+```{r}
+# Define training control
+set.seed(123)
+train.control = trainControl(method = "repeatedcv", 
+                             number = 5, repeats = 3,
+                             savePredictions = T,
+                             classProbs = T)
+
+```
+
+```{r}
+
+# Train the model
+# pca.logist.model = train(group ~ PC1 + PC2, 
+#                          data = train_pca1, 
+#                          method = "glm",
+#                          trControl = train.control,
+#                          family = binomial())
+
+```
+
+```{r}
+# require(pROC)
+# p = plot.roc(pca.logist.model$pred$obs,
+#          pca.logist.model$pred$DM1)
+# ruc_dt = data.table(
+#   true_positive_rate = p$sensitivities,
+#   false_positive_rate = 1 - p$specificities
+# )
+# ggplot(ruc_dt, aes(x = false_positive_rate, y = true_positive_rate)) +
+#   geom_point()
+# ruc_dt
+```
+
+ Final model was with 8 genes and PC1 only
+ 
+```{r}
+
+pca.logist.model_pc1 = train(group ~ PC1, 
+                         data = train_pca1, 
+                         method = "glm",
+                         trControl = train.control,
+                         family = binomial())
+
+p = plot.roc(pca.logist.model_pc1$pred$obs,
+         pca.logist.model_pc1$pred$DM1)
+ruc_dt = data.table(
+  true_positive_rate = p$sensitivities,
+  false_positive_rate = 1 - p$specificities
+)
+ggplot(ruc_dt, aes(x = false_positive_rate, y = true_positive_rate)) +
+  geom_point()
+ruc_dt
+fwrite(ruc_dt, file = file.path("..", "..", "results", "PCA", "train_ROC_8_genes_2023-01-26.csv"))
+```
+
+
+```{r}
+# pca.logist.model_pc2 = train(group ~ PC2, 
+#                          data = train_pca1, 
+#                          method = "glm",
+#                          trControl = train.control,
+#                          family = binomial())
+
+```
+
+```{r}
+# Summarize the results
+#print(pca.logist.model)
+print(pca.logist.model_pc1) #chosen model
+#print(pca.logist.model_pc2)
+
+#plot(pca.logist.model, main="Model Accuracies with MARS")
+#plot(pca.logist.model_pc2, main="Model Accuracies with MARS")
+
+plot(varImp(pca.logist.model), main="Variable Importance")
+
+```
+
+
+
+```{r}
+# test data
+test_pca = predict(
+  preProcess(test, method = c("center", "scale", "pca"), verbose = TRUE, pcaComp = 4),
+  test
+)     
+#test_predict = predict(pca.logist.model, test_pca)
+test_predict_pc1 = predict(pca.logist.model_pc1, test_pca)
+#test_predict_pc2 = predict(pca.logist.model_pc2, test_pca)
+fwrite(data.frame(id=test$ID, group=test$group, pred=test_predict_pc1), file=file.path( "..", "..", "results","PCA","Predictions_TestSet_34donors_2023-01-26.csv"))
+```
+
+```{r}
+## confusionMatrix
+#confusionMatrix(reference = test$group, data = test_predict, 
+#                mode='everything', positive='DM1')
+confusionMatrix(reference = test$group, data = test_predict_pc1, 
+                mode='everything', positive='DM1')
+#confusionMatrix(reference = test$group, data = test_predict_pc2, 
+#                mode='everything', positive='DM1')
+```
+
+
+```{r}
+train_p = copy(train_n)
+colnames(train_p) = gsub(" ", "", colnames(train_p))
+gene1 = "PCK1"
+gene2 = "GSTA1"
+ggplot(train_p, aes_string(x = gene1, y = gene2, color = "group", goup = "group")) +
+  geom_point() +
+  theme_minimal()
+ggsave(file.path(p_dir, "train_PCK1_vs_GSTA1.pdf"), width = 5, height = 3)
+
+```
+
+
+```{r}
+save(pca.logist.model, file = "logistic_regression_using_PCA_model_on_new_genes.Rdata")
+save(pca.logist.model_pc1, file = "logistic_regression_using_PCA_PC1_model_on_new_genes.Rdata")
+
+```
+
+
+```{r}
+require(cluster)
+require(ggfortify)
+ggplot(data = test_pca, aes(x = PC1, y = PC2, col = group, group = group)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "PC1 vs PC2")
+```
+
+
+
+```{r}
+train_p = copy(train_n)
+colnames(train_p) = gsub(" ", "", colnames(train_p))
+gene1 = "PCK1"
+gene2 = "GSTA1"
+ggplot(train_p, aes_string(x = gene1, y = gene2, color = "group", goup = "group")) +
+  geom_point() +
+  theme_minimal()
+ggsave(file.path(p_dir, "train_PCK1_vs_GSTA1.pdf"), width = 5, height = 3)
+```
+
+
+
+
+
+```{r}
+save(pca.logist.model, file = "logistic_regression_using_PCA_model_on_all_groups.Rdata")
+save(pca.logist.model_pc1, file = "logistic_regression_using_PCA_PC1_model_on_all_groups.Rdata")
+```
+

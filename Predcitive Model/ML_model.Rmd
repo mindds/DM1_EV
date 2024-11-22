@@ -1,0 +1,217 @@
+---
+title: "ML_model"
+author: "Zhaozhi Li"
+date: "11/18/2021"
+output: html_document
+---
+
+200 bp before or after
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required packages
+require(data.table)
+require(caret)
+require(MLeval)
+require(glmnet)
+require(ROCR)
+require(tidyverse)
+require(MethylIT)
+require(ComplexHeatmap)
+require(circlize)
+require(psych)
+
+# directories
+data_dir = file.path("..", "..", "data")
+result_dir = file.path("..", "..", "results")
+p_dir = file.path(result_dir, "Plots")
+
+# load data
+data_f = file.path(data_dir, "exRNA_ddPCR_pred_mod_111121.csv")
+ddPCR_r = fread(data_f)
+```
+
+
+# Preprocessing
+```{r}
+# create prediction label
+ddPCR_r[, group := map(strsplit(ID, "-"), ~.x[1]) %>% unlist()]
+ddPCR_r[, group := factor(group)]
+
+
+# splite data into training and testing by 75:25
+set.seed(123)
+train_idex = createDataPartition(ddPCR_r$group, p = .75, list = FALSE)
+train = ddPCR_r[train_idex, ]
+test = ddPCR_r[-train_idex, ]
+
+
+# normalization
+# non-numeric predictors are allowed but will be ignored.
+# method = "zv" identifies numeric predictor columns with a single value 
+# (i.e. having zero variance) and excludes them from further calculations. 
+train_proc = preProcess(train, method = c("center", "scale", "zv"), verbose = TRUE)
+train_n = predict(train_proc, train)
+```
+
+
+# Exploration
+```{r}
+# feature correlation analysis
+train_cor = cor(train_n[, c(-1, -7)])
+train_cor %>% 
+  Heatmap(
+    col = colorRamp2(c(-1, 0, 1), c("#0C6291", "#FBFEF9", "#A63446")),
+    cell_fun = function(j, i, x, y, width, height, fill) {
+        grid.text(sprintf("%.1f", ddPCR_cor[i, j]), x, y, gp = gpar(fontsize = 10))
+})
+
+pairs.panels(train_n[, c(-1, -7)],
+             gap = 0,
+             bg = c("red", "blue")[train_n$group],
+             pch=21)
+
+
+# 
+# require(AppliedPredictiveModeling)
+# require(lattice)
+# transparentTheme(trans = .4)
+# caret::featurePlot(x = ddPCR_n[, 2:6], 
+#             y = ddPCR_n$group,
+#             plot = "pairs")
+```
+
+
+
+# Logistic regression using Principal Components from PCA as predictor variables
+1. Principal components (PCs) are estimated from the predictor variables provided as input data. 
+2. Next, the individual coordinates in the selected PCs are used as predictors in the logistic regresson.
+
+reference: https://github.com/genomaths/MethylIT
+```{r}
+# step by step
+# PCA
+set.seed(1234)
+train_pca = predict(
+  preProcess(train, method = c("center", "scale", "pca"), verbose = TRUE),
+  train
+)   
+View(train_pca)
+
+require(factoextra)
+train_pca2 = prcomp(train[, c(-1, -7)], scale = TRUE, center = TRUE)
+train_var = get_pca_var(train_pca2)
+train_var$contrib
+
+train_var_dt = train_var$contrib[, 1:4] %>% as.data.frame()
+setDT(train_var_dt)
+train_var_dt[, exon := rownames(train_var$contrib)]
+train_var_dt = melt(train_var_dt, id.vars = "exon", 
+                    variable.name = "PC", value.name = "contribution")
+require(ggthemes)
+ggplot(train_var_dt, aes(x = PC, y = exon)) +
+  geom_point(aes(fill = contribution, size = contribution),
+             colour="black",pch=21) +
+  theme_few() +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = NA) +
+  scale_size(range = c(1,10))
+
+require(cluster)
+require(ggfortify)
+ggplot(data = train_pca, aes(x = PC1, y = PC2, col = group, group = group)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "PC1 vs PC2")
+
+fwrite(train_pca, file.path("..", "..", "results", "Data_for_predictive_model", "train_pca.csv"))
+
+ggplot(data = train_pca, aes(x = PC3, y = PC4, col = group, group = group)) + 
+       geom_point() + 
+       stat_ellipse(type = "norm") +
+       theme(legend.position='none') +
+       theme_minimal() +
+  labs(title = "PC3 vs PC4")
+
+# Define training control
+set.seed(123)
+train.control = trainControl(method = "repeatedcv", 
+                             number = 5, repeats = 3,
+                             savePredictions = T,
+                             classProbs = T)
+
+# Train the model
+pca.logist.model = train(group ~ PC1 + PC2 + PC3 + PC4, 
+                         data = train_pca, 
+                         method = "glm",
+                         trControl = train.control,
+                         family = binomial())
+require(pROC)
+p = plot.roc(pca.logist.model$pred$obs,
+         pca.logist.model$pred$DM1)
+ruc_dt = data.table(
+  true_positive_rate = p$sensitivities,
+  false_positive_rate = 1 - p$specificities
+)
+ggplot(ruc_dt, aes(x = false_positive_rate, y = true_positive_rate)) +
+  geom_point()
+
+fwrite(ruc_dt, file = file.path("..", "..", "results", "Data_for_predictive_model", "train_ROC.csv"))
+
+pca.logist.model_pc1 = train(group ~ PC1, 
+                         data = train_pca, 
+                         method = "glm",
+                         trControl = train.control,
+                         family = binomial())
+
+# Summarize the results
+print(pca.logist.model)
+print(pca.logist.model_pc1)
+
+plot(pca.logist.model, main="Model Accuracies with MARS")
+print(pca.logist.model_pc1, main="Model Accuracies with MARS")
+
+plot(varImp(pca.logist.model), main="Variable Importance")
+
+
+# test data
+test_pca = predict(
+  preProcess(test, method = c("center", "scale", "pca"), verbose = TRUE, pcaComp = 4),
+  test
+)     
+test_predict = predict(pca.logist.model, test_pca)
+
+test_predict_pc1 = predict(pca.logist.model_pc1, test_pca)
+
+## confusionMatrix
+confusionMatrix(reference = test$group, data = test_predict, 
+                mode='everything', positive='DM1')
+confusionMatrix(reference = test$group, data = test_predict_pc1, 
+                mode='everything', positive='DM1')
+```
+
+# 
+```{r}
+train_p = copy(train_n)
+colnames(train_p) = gsub(" ", "", colnames(train_p))
+gene1 = "NUMA1ex16"
+gene2 = "INCENPex11"
+ggplot(train_p, aes_string(x = gene1, y = gene2, color = "group", goup = "group")) +
+  geom_point() +
+  theme_minimal()
+ggsave(file.path(p_dir, "train_NUMA1ex16_vs_INCENPex11.pdf"), width = 5, height = 3)
+```
+
+
+
+
+
+```{r}
+save(pca.logist.model, file = "logistic_regression_using_PCA_model.Rdata")
+save(pca.logist.model_pc1, file = "logistic_regression_using_PCA_PC1_model.Rdata")
+```
+
