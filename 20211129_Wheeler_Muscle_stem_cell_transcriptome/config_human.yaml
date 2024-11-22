@@ -1,7 +1,0 @@
-"path_S3_in" : "/space/mindds/1/projects/ThurmanRNASeq/data/merged/20211129_Wheeler_Muscle_stem_cell_transcriptome"
-"path_S3_out" : "/space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome"
-"path_EFS_out" : "/space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome/se"
-"sample_table" : "/space/mindds/1/projects/ThurmanRNASeq/scripts/20211129_Wheeler_Muscle_stem_cell_transcriptome/sampleTable.csv"
-"path_annotation" : "/space/mindds/1/pipelines/rnaseq-pipeline/annotation/Human/GRCh38.105/gencode"
-"path_tmp" : "/space/mindds/1/projects/ThurmanRNASeq/results/20211129_Wheeler_Muscle_stem_cell_transcriptome/tmp"
-"rapid_run" : "False"
